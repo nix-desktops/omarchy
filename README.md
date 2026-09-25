@@ -41,7 +41,7 @@ system by editing `~/nixos/omarchy/*.json` and rebuilding.
           omarchy = {
             enable = true;
             users = [ "me" ];
-            stateDir = ./omarchy;              # apps.json, theme.json, dbs.json, agents.json
+            stateDir = ./omarchy;              # apps.json, theme.json, dbs.json, agents.json, branding.json
             configDir = "/home/me/nixos";      # this flake, writable by the user
           };
           home-manager.users.me.home.stateVersion = "26.05";
@@ -90,11 +90,13 @@ nix build github:nix-desktops/omarchy#keybinds               # Omarchy's keybind
 | `omarchy.hyprland.extraConfig` | Hyprland Lua after Omarchy's config (monitors, input, window rules) |
 | `omarchy.theme` / `omarchy.lib.theme { stateDir = ./omarchy; }` | the active theme's palette, for theming the rest of your config (Stylix, …) |
 | `omarchy.login.autoLogin = "me";` | straight into the session, for encrypted disks |
+| `omarchy.branding.name = "Willexander";` | another name on the boot splash, login screen, screensaver and About screen, drawn in Omarchy's style (also Style > Branding in the menu) |
 
 The state the menu edits lives in your config (`stateDir`): `apps.json`
 (installed packages), `theme.json` (the theme and pinned community themes),
 `dbs.json` (development databases), `agents.json` (installed agents and the
-default). Commit it with the rest of your config.
+default), `branding.json` (the name, when it isn't Omarchy). Commit it with
+the rest of your config.
 
 ## Channels
 

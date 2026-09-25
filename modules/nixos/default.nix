@@ -14,6 +14,10 @@ let
     config.allowUnfree = true;
   };
 
+  # branding.json in the state directory (optional; Style > Branding writes it).
+  brandingState = let f = cfg.stateDir + "/branding.json"; in
+    if builtins.pathExists f then f else builtins.toFile "branding.json" "{}";
+
   # Development databases (Install > Development > Docker DB). The menu
   # edits dbs.json and rebuilds, so each container is a declarative
   # virtualisation.oci-containers unit instead of upstream's loose
@@ -73,25 +77,39 @@ let
   };
   enabledDbs = lib.filter (n: dbDefs ? ${n}) dbState.enabled;
 
+  # The name the boot splash and login screen show (Style > Branding sets it
+  # in the host's branding.json); anything but Omarchy gets a wordmark
+  # drawn like Omarchy's.
+  branding = if cfg.branding.name == "Omarchy" then null
+    else pkgs.callPackage ../../pkgs/branding.nix { inherit (cfg.branding) name; };
+  brandLogo = dir: lib.optionalString (branding != null) "cp ${branding}/logo.png ${dir}/logo.png";
+
   # Omarchy's Plymouth theme, with its /usr/share paths pointed at the store.
   plymouthTheme = pkgs.runCommand "omarchy-plymouth-theme" { } ''
     dir=$out/share/plymouth/themes/omarchy
     mkdir -p $dir
     cp -r ${inputs.omarchy}/default/plymouth/. $dir/
     chmod -R u+w $dir
+    ${brandLogo "$dir"}
     substituteInPlace $dir/omarchy.plymouth \
       --replace-fail /usr/share/plymouth/themes/omarchy $dir
   '';
 
   # Omarchy's SDDM theme. It preselects the session whose name contains
   # "uwsm"; NixOS names it "Hyprland (UWSM)", so compare case-insensitively.
+  # It has no user field and logs in as SDDM's last user, which Omarchy's
+  # ISO seeds; before anyone has logged in that's empty, so fall back to the
+  # first of `omarchy.users`.
   sddmTheme = pkgs.runCommand "omarchy-sddm-theme" { } ''
     dir=$out/share/sddm/themes/omarchy
     mkdir -p $dir
     cp -r ${inputs.omarchy}/default/sddm/omarchy/. $dir/
     chmod -R u+w $dir
+    ${brandLogo "$dir"}
     substituteInPlace $dir/Main.qml \
-      --replace-fail 'name.indexOf("uwsm")' 'name.toLowerCase().indexOf("uwsm")'
+      --replace-fail 'name.indexOf("uwsm")' 'name.toLowerCase().indexOf("uwsm")' \
+      --replace-fail 'property string currentUser: userModel.lastUser' \
+        'property string currentUser: userModel.lastUser || ${builtins.toJSON (lib.head (cfg.users ++ [ "" ]))}'
   '';
   # The greeter runs in its own minimal Hyprland, as upstream's sddm.conf.d.
   greeterConfig = "${inputs.omarchy}/default/sddm/hyprland.lua";
@@ -157,6 +175,19 @@ in
       default = if cfg.configDir == null then null else "sudo nixos-rebuild switch --flake ${cfg.configDir}";
       defaultText = lib.literalExpression ''"sudo nixos-rebuild switch --flake ''${config.omarchy.configDir}"'';
       description = "How the menu applies changes; passed to each user's desktop.";
+    };
+
+    branding.name = mkOption {
+      type = types.str;
+      default = (lib.importJSON brandingState).name or "Omarchy";
+      defaultText = lib.literalExpression ''"name" from branding.json in stateDir, else "Omarchy"'';
+      example = "Willexander";
+      description = ''
+        The name on the boot splash and login screen (a wordmark in
+        Omarchy's style), the screensaver and the About screen. The menu's
+        Style > Branding writes it to branding.json in the state directory.
+        Passed to each user's desktop.
+      '';
     };
 
     homeManager.enable = mkOption {
@@ -409,6 +440,7 @@ in
         ecosystem.enable = mkDefault cfg.ecosystem.enable;
         shell = mkDefault cfg.shell;
         stateDir = mkDefault cfg.stateDir;
+        branding.name = mkDefault cfg.branding.name;
       }
       // lib.optionalAttrs (cfg.stateDirPath != null) { stateDirPath = mkDefault cfg.stateDirPath; }
       // lib.optionalAttrs (cfg.configDir != null) { configDir = mkDefault cfg.configDir; }

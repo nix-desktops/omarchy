@@ -62,7 +62,13 @@ let
     "trigger.hardware.hybrid-gpu" = hide;
 
     # ---- Style -----------------------------------------------------------
-    "style.unlock" = hide;
+    # Upstream swaps the boot splash and login logos in /usr/share; here
+    # the name they show goes into branding.json (omarchy.branding.name).
+    "style.unlock" = {
+      label = "Branding";
+      aliases = [ "unlock" "branding" "name" ];
+      action = term "omarchy-branding-name";
+    };
     "style.hyprland" = editConfig;
 
     # ---- Setup -----------------------------------------------------------

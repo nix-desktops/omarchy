@@ -17,10 +17,12 @@
 #   - desktop files are looked up in the NixOS profiles too, not just
 #     ~/.local, ~/.nix-profile and /usr; app launchers find apps on PATH
 #     instead of /usr/bin.
+#   - `branding`: another name's wordmark (pkgs/branding.nix) as logo.txt,
+#     which the screensaver, About screen and omarchy-show-logo draw.
 #   - the system defaults upstream installs under /usr/share (MIME handlers,
 #     the terminal preference list) go to $out/share, which the profile
 #     puts on XDG_DATA_DIRS.
-{ lib, stdenvNoCC, src, bash, python3, perl, jq, replacements ? [ ], plugins ? [ ] }:
+{ lib, stdenvNoCC, src, bash, python3, perl, jq, replacements ? [ ], plugins ? [ ], branding ? null }:
 
 stdenvNoCC.mkDerivation {
   pname = "omarchy";
@@ -56,6 +58,7 @@ stdenvNoCC.mkDerivation {
     done
 
     chmod -R u+w $share
+    ${lib.optionalString (branding != null) "cp ${branding}/logo.txt $share/logo.txt"}
 
     # System defaults, where upstream puts them under /usr/share.
     install -Dm644 default/applications/mimeapps.list $out/share/applications/mimeapps.list
