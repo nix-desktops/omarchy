@@ -5,14 +5,16 @@
 #   rc      the newest v4.* pre-release, or stable when that is newer
 #   edge    upstream's `quattro` branch
 #
-# For each channel it points the `omarchy` input at that ref, re-locks it,
-# and opens (or updates) a PR against the channel branch with auto-merge on,
-# so it lands once CI passes (branch protection requires the CI check).
+# For each channel it points the `omarchy` input at that ref and re-locks it.
+# When that changes anything, it runs the whole flake check (the NixOS VM
+# test included) right here and pushes the update to the channel branch only
+# when the check passes; a failing update leaves the channel as it was and
+# shows as a failed run.
 #
-# No personal token needed: a PR opened with GITHUB_TOKEN doesn't start
-# other workflows by itself, so this starts CI on the PR's branch with
-# workflow_dispatch (which GITHUB_TOKEN may do); its check lands on the PR's
-# commit and the auto-merge waits for it.
+# The check runs in this job rather than in a PR's CI: PRs and pushes made
+# with GITHUB_TOKEN don't start other workflows, and a CI run started by
+# dispatch doesn't count for a PR's required checks. This way no personal
+# token or secret is needed.
 name: Update Omarchy
 
 on:
@@ -21,13 +23,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: write
   contents: write
-  pull-requests: write
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
@@ -68,34 +69,51 @@ jobs:
 
       - uses: cachix/install-nix-action@v31
         if: steps.ref.outputs.ref != ''
+        with:
+          extra_nix_config: |
+            system-features = nixos-test benchmark big-parallel kvm
 
       - name: Re-lock the omarchy input
         if: steps.ref.outputs.ref != ''
+        id: lock
         env:
           REF: ${{ steps.ref.outputs.ref }}
         run: |
           sed -i -E "s|github:basecamp/omarchy/[^\"]*|github:basecamp/omarchy/$REF|" flake.nix
           nix flake update omarchy
+          if git diff --quiet; then
+            echo "Already on the newest $REF."
+          else
+            echo "changed=true" >>"$GITHUB_OUTPUT"
+          fi
 
-      - name: Open the PR
-        if: steps.ref.outputs.ref != ''
-        id: pr
-        uses: peter-evans/create-pull-request@v7
+      # The ecosystem checks pull in large apps (LibreOffice, Kdenlive, …).
+      - name: Free disk space
+        if: steps.lock.outputs.changed == 'true'
+        uses: jlumbroso/free-disk-space@v1.3.1
         with:
-          branch: update-omarchy/${{ matrix.channel }}
-          base: ${{ matrix.channel }}
-          commit-message: "omarchy: ${{ steps.ref.outputs.ref }}"
-          title: "${{ matrix.channel }}: Omarchy ${{ steps.ref.outputs.ref }}"
-          body: |
-            Points the `omarchy` input of the `${{ matrix.channel }}` channel at upstream `${{ steps.ref.outputs.ref }}` and re-locks it.
-          delete-branch: true
+          tool-cache: true
 
-      - name: Run CI and auto-merge when it passes
-        if: steps.pr.outputs.pull-request-number != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BRANCH: update-omarchy/${{ matrix.channel }}
-          PR: ${{ steps.pr.outputs.pull-request-number }}
+      # KVM for the NixOS VM test.
+      - name: Enable KVM
+        if: steps.lock.outputs.changed == 'true'
         run: |
-          gh workflow run ci.yml --ref "$BRANCH" --repo "$GITHUB_REPOSITORY"
-          gh pr merge --auto --squash "$PR" --repo "$GITHUB_REPOSITORY"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: nix flake check
+        if: steps.lock.outputs.changed == 'true'
+        run: nix flake check -L --show-trace
+
+      - name: Push the update
+        if: steps.lock.outputs.changed == 'true'
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+          CHANNEL: ${{ matrix.channel }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "omarchy: $REF ($(nix eval --raw --impure --expr '(builtins.fromJSON (builtins.readFile ./flake.lock)).nodes.omarchy.locked.rev' | cut -c1-7))"
+          git push origin "HEAD:$CHANNEL"
