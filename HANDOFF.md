@@ -193,10 +193,12 @@ and updates; `omarchy.rebuildCommand` is how the menu applies changes.
   nixos-unstable's Qt like Quickshell; its QML path is `lib/qt6/qml`.
 - **What doesn't build is left out** of the catalog (user's decision): see
   PACKAGES.md. omarchy-default-agent says so for upstream's other agents.
-- **Workflows:** PRs made with the default GITHUB_TOKEN don't trigger CI;
-  update-omarchy.yml starts ci.yml on the PR branch with workflow_dispatch
-  instead (allowed for GITHUB_TOKEN), so no personal token or secret is
-  needed for auto-merge.
+- **Workflows:** PRs and pushes made with GITHUB_TOKEN don't trigger CI, and
+  a CI run started by workflow_dispatch doesn't count toward a PR's required
+  checks (tried: the PR stays BLOCKED). So update-omarchy.yml runs the flake
+  check in its own job and pushes to the channel branch when it passes; the
+  channel branches have no branch protection (it would block that push).
+  No personal token or secret is needed.
 - **Defaults are system files, not user files:** the terminal list and MIME
   defaults install to the package's `share/` (upstream: `/usr/share`), so
   `omarchy-default-terminal` / `xdg-settings` can still write the user's own
@@ -242,8 +244,8 @@ All eight items are implemented, squashed into one commit and pushed
    Upstreaming to nixpkgs: **on hold** (user, 2026-09-25: leave the tool
    packages be for now).
 7. **Branches and CI** — workflows written (`ci.yml`, `update-omarchy.yml`).
-   Branches `main`, `edge`, `rc`, `stable` exist; auto-merge is allowed and
-   the channel branches require the CI check. Cachix (a hosted binary cache)
+   Branches `main`, `edge`, `rc`, `stable` exist; the update job tests each
+   update itself before pushing it to the channel. Cachix (a hosted binary cache)
    stays off until a `CACHIX_AUTH_TOKEN` secret exists (cache name
    `nix-desktops` in ci.yml is a placeholder).
 8. **VM test and README** — done.
