@@ -12,7 +12,7 @@
     # rc → newest pre-release tag, edge/main → the `quattro` branch. CI
     # (.github/workflows/update-omarchy.yml) keeps it current.
     omarchy = {
-      url = "github:basecamp/omarchy/quattro";
+      url = "github:basecamp/omarchy/v4.0.4";
       flake = false;
     };
 
