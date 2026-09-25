@@ -94,7 +94,10 @@ State the menu edits lives **in the host's config**, passed as
 `omarchy.stateDir` (a path; read at build time) and `omarchy.stateDirPath` (the
 same directory as a writable string for the commands): `apps.json`
 (menu-installed packages), `theme.json` (active theme + pinned community themes),
-`dbs.json` (dev databases). `omarchy.configDir` is the host flake the menu opens
+`dbs.json` (dev databases), `agents.json` (agents + default) and the optional
+`branding.json` (`omarchy.branding.name`, set from Style > Branding: a
+wordmark in Omarchy's style on Plymouth, SDDM, screensaver and About;
+pkgs/branding.nix). `omarchy.configDir` is the host flake the menu opens
 and updates; `omarchy.rebuildCommand` is how the menu applies changes.
 
 ## What works (verified on the author's machine, 2026-09-25)
@@ -170,6 +173,11 @@ and updates; `omarchy.rebuildCommand` is how the menu applies changes.
 - **Module dedup:** both modules are wrapped with a `key`, so a host that
   imports the HM module itself *and* lists the user in `omarchy.users` gets
   it once (the author's config does exactly that).
+- **SDDM's user:** Omarchy's SDDM theme has no user field; it logs in as
+  SDDM's last user, which Omarchy's ISO seeds. On a fresh NixOS install
+  that's empty (every password "fails" as user ""), so the theme falls back
+  to the first of `omarchy.users`. The VM test logs in automatically and
+  doesn't cover this.
 - **Login:** `omarchy.login.enable` defaults off when the host runs greetd,
   GDM or LightDM (the author uses greetd). SDDM's greeter runs in Hyprland
   (`start-hyprland -- --config default/sddm/hyprland.lua`); the theme's
