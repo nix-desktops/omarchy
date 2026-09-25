@@ -1,0 +1,101 @@
+# Keeps each channel branch on the newest upstream Omarchy for its channel,
+# every 6 hours and on demand:
+#
+#   stable  the newest v4.* release
+#   rc      the newest v4.* pre-release, or stable when that is newer
+#   edge    upstream's `quattro` branch
+#
+# For each channel it points the `omarchy` input at that ref, re-locks it,
+# and opens (or updates) a PR against the channel branch with auto-merge on,
+# so it lands once CI passes (branch protection requires the CI check).
+#
+# No personal token needed: a PR opened with GITHUB_TOKEN doesn't start
+# other workflows by itself, so this starts CI on the PR's branch with
+# workflow_dispatch (which GITHUB_TOKEN may do); its check lands on the PR's
+# commit and the auto-merge waits for it.
+name: Update Omarchy
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [stable, rc, edge]
+    steps:
+      - name: Find the upstream ref
+        id: ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ matrix.channel }}
+        run: |
+          releases=$(gh api --paginate repos/basecamp/omarchy/releases \
+            --jq '.[] | select(.draft | not) | select(.tag_name | startswith("v4.")) | [.tag_name, .prerelease, .published_at] | @tsv')
+          stable=$(awk -F'\t' '$2 == "false"' <<<"$releases" | sort -t$'\t' -k3 | tail -1)
+          pre=$(awk -F'\t' '$2 == "true"' <<<"$releases" | sort -t$'\t' -k3 | tail -1)
+          case "$CHANNEL" in
+            stable) ref=$(cut -f1 <<<"$stable") ;;
+            rc)
+              # The newest pre-release, unless a release came out after it.
+              if [[ -n $pre && ( -z $stable || $(cut -f3 <<<"$pre") > $(cut -f3 <<<"$stable") ) ]]; then
+                ref=$(cut -f1 <<<"$pre")
+              else
+                ref=$(cut -f1 <<<"$stable")
+              fi
+              ;;
+            edge) ref=quattro ;;
+          esac
+          if [[ -z $ref ]]; then
+            echo "No upstream ref for $CHANNEL yet." >&2
+            exit 0
+          fi
+          echo "ref=$ref" >>"$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.ref.outputs.ref != ''
+        with:
+          ref: ${{ matrix.channel }}
+
+      - uses: cachix/install-nix-action@v31
+        if: steps.ref.outputs.ref != ''
+
+      - name: Re-lock the omarchy input
+        if: steps.ref.outputs.ref != ''
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          sed -i -E "s|github:basecamp/omarchy/[^\"]*|github:basecamp/omarchy/$REF|" flake.nix
+          nix flake update omarchy
+
+      - name: Open the PR
+        if: steps.ref.outputs.ref != ''
+        id: pr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: update-omarchy/${{ matrix.channel }}
+          base: ${{ matrix.channel }}
+          commit-message: "omarchy: ${{ steps.ref.outputs.ref }}"
+          title: "${{ matrix.channel }}: Omarchy ${{ steps.ref.outputs.ref }}"
+          body: |
+            Points the `omarchy` input of the `${{ matrix.channel }}` channel at upstream `${{ steps.ref.outputs.ref }}` and re-locks it.
+          delete-branch: true
+
+      - name: Run CI and auto-merge when it passes
+        if: steps.pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: update-omarchy/${{ matrix.channel }}
+          PR: ${{ steps.pr.outputs.pull-request-number }}
+        run: |
+          gh workflow run ci.yml --ref "$BRANCH" --repo "$GITHUB_REPOSITORY"
+          gh pr merge --auto --squash "$PR" --repo "$GITHUB_REPOSITORY"

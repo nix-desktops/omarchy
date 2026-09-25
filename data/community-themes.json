@@ -1,0 +1,562 @@
+{
+  "aetheria": {
+    "title": "Aetheria",
+    "owner": "JJDizz1L",
+    "repo": "aetheria"
+  },
+  "amberbyte": {
+    "title": "Amberbyte",
+    "owner": "tahfizhabib",
+    "repo": "omarchy-amberbyte-theme"
+  },
+  "arc-blueberry": {
+    "title": "Arc Blueberry",
+    "owner": "vale-c",
+    "repo": "omarchy-arc-blueberry"
+  },
+  "archwave": {
+    "title": "Archwave",
+    "owner": "davidguttman",
+    "repo": "archwave"
+  },
+  "ash": {
+    "title": "Ash",
+    "owner": "bjarneo",
+    "repo": "omarchy-ash-theme"
+  },
+  "artzen": {
+    "title": "Artzen",
+    "owner": "tahfizhabib",
+    "repo": "omarchy-artzen-theme"
+  },
+  "aura": {
+    "title": "Aura",
+    "owner": "bjarneo",
+    "repo": "omarchy-aura-theme"
+  },
+  "all-hallows-eve": {
+    "title": "All Hallow's Eve",
+    "owner": "guilhermetk",
+    "repo": "omarchy-all-hallows-eve-theme"
+  },
+  "atelier": {
+    "title": "Atelier",
+    "owner": "atif-1402",
+    "repo": "omarchy-atelier-theme"
+  },
+  "ayaka": {
+    "title": "Ayaka",
+    "owner": "abhijeet-swami",
+    "repo": "omarchy-ayaka-theme"
+  },
+  "azure-glow": {
+    "title": "Azure Glow",
+    "owner": "Hydradevx",
+    "repo": "omarchy-azure-glow-theme"
+  },
+  "batman": {
+    "title": "Batman",
+    "owner": "OldJobobo",
+    "repo": "omarchy-batman-theme"
+  },
+  "batou": {
+    "title": "Batou",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-batou-theme"
+  },
+  "bauhaus": {
+    "title": "Bauhaus",
+    "owner": "somerocketeer",
+    "repo": "omarchy-bauhaus-theme"
+  },
+  "biscuit-de-mar-dark": {
+    "title": "Biscuit de Mar Dark",
+    "owner": "OldJobobo",
+    "repo": "omarchy-biscuit-de-mar-dark-theme"
+  },
+  "black-arch": {
+    "title": "Black Arch",
+    "owner": "ankur311sudo",
+    "repo": "black_arch"
+  },
+  "black-gold": {
+    "title": "Black Gold",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-blackgold-theme"
+  },
+  "black-turq": {
+    "title": "Black Turq",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-blackturq-theme"
+  },
+  "bluedotrb": {
+    "title": "bluedotrb",
+    "owner": "dotsilva",
+    "repo": "omarchy-bluedotrb-theme"
+  },
+  "blue-ridge-dark": {
+    "title": "Blue Ridge Dark",
+    "owner": "hipsterusername",
+    "repo": "omarchy-blueridge-dark-theme"
+  },
+  "catppuccin-mocha-dark": {
+    "title": "Catppuccin Mocha Dark",
+    "owner": "Luquatic",
+    "repo": "omarchy-catppuccin-dark"
+  },
+  "citrus-cynapse": {
+    "title": "Citrus Cynapse",
+    "owner": "Grey-007",
+    "repo": "citrus-cynapse"
+  },
+  "city-783": {
+    "title": "City-783",
+    "owner": "OldJobobo",
+    "repo": "omarchy-city-783-theme"
+  },
+  "cobalt2": {
+    "title": "Cobalt2",
+    "owner": "hoblin",
+    "repo": "omarchy-cobalt2-theme"
+  },
+  "cpunk": {
+    "title": "CpUnk",
+    "owner": "stannorbvb-cmd",
+    "repo": "cpunk"
+  },
+  "darcula": {
+    "title": "Darcula",
+    "owner": "noahljungberg",
+    "repo": "omarchy-darcula-theme"
+  },
+  "demon": {
+    "title": "Demon",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-demon-theme"
+  },
+  "dotrb": {
+    "title": "Dotrb",
+    "owner": "dotsilva",
+    "repo": "omarchy-dotrb-theme"
+  },
+  "dos-moos": {
+    "title": "Dos Moos",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-dos-moos-theme"
+  },
+  "drac": {
+    "title": "Drac",
+    "owner": "ShehabShaef",
+    "repo": "omarchy-drac-theme"
+  },
+  "dracula": {
+    "title": "Dracula",
+    "owner": "catlee",
+    "repo": "omarchy-dracula-theme"
+  },
+  "eldritch": {
+    "title": "Eldritch",
+    "owner": "eldritch-theme",
+    "repo": "omarchy"
+  },
+  "event-horizon": {
+    "title": "Event Horizon",
+    "owner": "OldJobobo",
+    "repo": "omarchy-event-horizon-theme"
+  },
+  "evergarden": {
+    "title": "Evergarden",
+    "owner": "celsobenedetti",
+    "repo": "omarchy-evergarden"
+  },
+  "felix": {
+    "title": "Felix",
+    "owner": "TyRichards",
+    "repo": "omarchy-felix-theme"
+  },
+  "fireside": {
+    "title": "Fireside",
+    "owner": "bjarneo",
+    "repo": "omarchy-fireside-theme"
+  },
+  "fish-material": {
+    "title": "Fish Material",
+    "owner": "Eidan78",
+    "repo": "omarchy-fish-material-theme"
+  },
+  "flat-dracula": {
+    "title": "Flat Dracula",
+    "owner": "OldJobobo",
+    "repo": "omarchy-flat-dracula-theme"
+  },
+  "flexoki-dark": {
+    "title": "Flexoki Dark",
+    "owner": "euandeas",
+    "repo": "omarchy-flexoki-dark-theme"
+  },
+  "forest-green": {
+    "title": "Forest Green",
+    "owner": "abhijeet-swami",
+    "repo": "omarchy-forest-green-theme"
+  },
+  "frost": {
+    "title": "Frost",
+    "owner": "bjarneo",
+    "repo": "omarchy-frost-theme"
+  },
+  "futurism": {
+    "title": "Futurism",
+    "owner": "bjarneo",
+    "repo": "omarchy-futurism-theme"
+  },
+  "ghost-pastel": {
+    "title": "Ghost Pastel",
+    "owner": "row-huh",
+    "repo": "omarchy-ghost-pastel-theme"
+  },
+  "gold-rush": {
+    "title": "Gold Rush",
+    "owner": "tahayvr",
+    "repo": "omarchy-gold-rush-theme"
+  },
+  "golden-brown": {
+    "title": "Golden Brown",
+    "owner": "atif-1402",
+    "repo": "omarchy-golden-brown-theme"
+  },
+  "the-greek": {
+    "title": "The Greek",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-thegreek-theme"
+  },
+  "greek-noir": {
+    "title": "Greek Noir",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-greek-noir-theme"
+  },
+  "green-garden": {
+    "title": "Green Garden",
+    "owner": "kalk-ak",
+    "repo": "omarchy-green-garden-theme"
+  },
+  "harbor": {
+    "title": "Harbor",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-harbor-theme"
+  },
+  "harbor-dark": {
+    "title": "Harbor Dark",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-harbordark-theme"
+  },
+  "hinterlands": {
+    "title": "Hinterlands",
+    "owner": "OldJobobo",
+    "repo": "omarchy-hinterlands-theme"
+  },
+  "infernium": {
+    "title": "Infernium",
+    "owner": "RiO7MAKK3R",
+    "repo": "omarchy-infernium-dark-theme"
+  },
+  "inky-pinky": {
+    "title": "Inky Pinky",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-inkypinky-theme"
+  },
+  "liotronic": {
+    "title": "Liotronic",
+    "owner": "azeemsher788",
+    "repo": "omarchy-liotronic-theme"
+  },
+  "map-quest": {
+    "title": "Map Quest",
+    "owner": "ItsABigIgloo",
+    "repo": "omarchy-mapquest-theme"
+  },
+  "mars": {
+    "title": "Mars",
+    "owner": "steve-lohmeyer",
+    "repo": "omarchy-mars-theme"
+  },
+  "mechanoonna": {
+    "title": "Mechanoonna",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-mechanoonna-theme"
+  },
+  "midnight": {
+    "title": "Midnight",
+    "owner": "JaxonWright",
+    "repo": "omarchy-midnight-theme"
+  },
+  "milky-matcha": {
+    "title": "Milky Matcha",
+    "owner": "hipsterusername",
+    "repo": "omarchy-milkmatcha-light-theme"
+  },
+  "monochrome": {
+    "title": "Monochrome",
+    "owner": "Swarnim114",
+    "repo": "omarchy-monochrome-theme"
+  },
+  "monokai": {
+    "title": "Monokai",
+    "owner": "bjarneo",
+    "repo": "omarchy-monokai-theme"
+  },
+  "moodpeak": {
+    "title": "Moodpeak",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-moodpeak-theme"
+  },
+  "nagai-poolside": {
+    "title": "Nagai Poolside",
+    "owner": "somerocketeer",
+    "repo": "omarchy-nagai-poolside-theme"
+  },
+  "neo-sploosh": {
+    "title": "Neo Sploosh",
+    "owner": "monoooki",
+    "repo": "omarchy-neo-sploosh-theme"
+  },
+  "neovoid": {
+    "title": "Neovoid",
+    "owner": "RiO7MAKK3R",
+    "repo": "omarchy-neovoid-theme"
+  },
+  "nes": {
+    "title": "NES",
+    "owner": "bjarneo",
+    "repo": "omarchy-nes-theme"
+  },
+  "omacarchy": {
+    "title": "Omacarchy",
+    "owner": "RiO7MAKK3R",
+    "repo": "omarchy-omacarchy-theme"
+  },
+  "omacon": {
+    "title": "Omacon",
+    "owner": "Eidan78",
+    "repo": "omarchy-omacon-theme"
+  },
+  "one-dark-pro": {
+    "title": "One Dark Pro",
+    "owner": "sc0ttman",
+    "repo": "omarchy-one-dark-pro-theme"
+  },
+  "oxo-carbon": {
+    "title": "Oxo Carbon",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-oxocarbon-theme"
+  },
+  "pandora": {
+    "title": "Pandora",
+    "owner": "imbypass",
+    "repo": "omarchy-pandora-theme"
+  },
+  "pina": {
+    "title": "Pina",
+    "owner": "bjarneo",
+    "repo": "omarchy-pina-theme"
+  },
+  "pink-blood": {
+    "title": "Pink Blood",
+    "owner": "ITSZXY",
+    "repo": "pink-blood-omarchy-theme"
+  },
+  "pulsar": {
+    "title": "Pulsar",
+    "owner": "bjarneo",
+    "repo": "omarchy-pulsar-theme"
+  },
+  "purple-moon": {
+    "title": "Purple Moon",
+    "owner": "Grey-007",
+    "repo": "purple-moon"
+  },
+  "purplewave": {
+    "title": "Purplewave",
+    "owner": "dotsilva",
+    "repo": "omarchy-purplewave-theme"
+  },
+  "rainy-night": {
+    "title": "Rainy Night",
+    "owner": "atif-1402",
+    "repo": "omarchy-rainynight-theme"
+  },
+  "red-monarch": {
+    "title": "Red Monarch",
+    "owner": "kamatealif",
+    "repo": "omarchy-red-monarch-theme"
+  },
+  "retropc": {
+    "title": "RetroPC",
+    "owner": "rondilley",
+    "repo": "omarchy-retropc-theme"
+  },
+  "ristretto-light": {
+    "title": "Ristretto Light",
+    "owner": "brokkoli71",
+    "repo": "omarchy-ristretto-light-theme"
+  },
+  "robzee84": {
+    "title": "RobZee84",
+    "owner": "robzolkos",
+    "repo": "omarchy-robzee84-theme"
+  },
+  "rose-pine-dark": {
+    "title": "Rose Pine Dark",
+    "owner": "guilhermetk",
+    "repo": "omarchy-rose-pine-dark"
+  },
+  "rose-of-dune": {
+    "title": "Rose of Dune",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-roseofdune-theme"
+  },
+  "ryu": {
+    "title": "Ryu",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-ryu-theme"
+  },
+  "sakura": {
+    "title": "Sakura",
+    "owner": "bjarneo",
+    "repo": "omarchy-sakura-theme"
+  },
+  "sakura-mochi": {
+    "title": "Sakura Mochi",
+    "owner": "OldJobobo",
+    "repo": "omarchy-sakura-mochi-theme"
+  },
+  "saga": {
+    "title": "Saga",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-saga-theme"
+  },
+  "sapphire": {
+    "title": "Sapphire",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-sapphire-theme"
+  },
+  "shades-of-jade": {
+    "title": "Shades of Jade",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-shadesofjade-theme"
+  },
+  "space-monkey": {
+    "title": "Space Monkey",
+    "owner": "TyRichards",
+    "repo": "omarchy-space-monkey-theme"
+  },
+  "snow": {
+    "title": "Snow",
+    "owner": "bjarneo",
+    "repo": "omarchy-snow-theme"
+  },
+  "snow-black": {
+    "title": "Snow Black",
+    "owner": "ankur311sudo",
+    "repo": "snow_black"
+  },
+  "solarized": {
+    "title": "Solarized",
+    "owner": "Gazler",
+    "repo": "omarchy-solarized-theme"
+  },
+  "solarized-light": {
+    "title": "Solarized Light",
+    "owner": "dfrico",
+    "repo": "omarchy-solarized-light-theme"
+  },
+  "solarized-osaka": {
+    "title": "Solarized Osaka",
+    "owner": "motorsss",
+    "repo": "omarchy-solarizedosaka-theme"
+  },
+  "sunset": {
+    "title": "Sunset",
+    "owner": "rondilley",
+    "repo": "omarchy-sunset-theme"
+  },
+  "sunset-drive": {
+    "title": "Sunset Drive",
+    "owner": "tahayvr",
+    "repo": "omarchy-sunset-drive-theme"
+  },
+  "super-game-bro": {
+    "title": "Super Game Bro",
+    "owner": "TyRichards",
+    "repo": "omarchy-super-game-bro-theme"
+  },
+  "synthwave-84": {
+    "title": "Synthwave '84",
+    "owner": "omacom-io",
+    "repo": "omarchy-synthwave84-theme"
+  },
+  "temerald": {
+    "title": "Temerald",
+    "owner": "Ahmad-Mtr",
+    "repo": "omarchy-temerald-theme"
+  },
+  "tokyo-night-oled": {
+    "title": "Tokyo Night OLED",
+    "owner": "Justin-De-Sio",
+    "repo": "omarchy-tokyoled-theme"
+  },
+  "tycho": {
+    "title": "Tycho",
+    "owner": "leonardobetti",
+    "repo": "omarchy-tycho"
+  },
+  "waffle-cat": {
+    "title": "Waffle Cat",
+    "owner": "OldJobobo",
+    "repo": "omarchy-waffle-cat-theme"
+  },
+  "waveform-dark": {
+    "title": "Waveform Dark",
+    "owner": "hipsterusername",
+    "repo": "omarchy-waveform-dark-theme"
+  },
+  "white-gold": {
+    "title": "White Gold",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-whitegold-theme"
+  },
+  "windows-dark-mode": {
+    "title": "Windows Dark Mode",
+    "owner": "oldjobobo",
+    "repo": "omarchy-windows-dark-mode-theme"
+  },
+  "van-gogh": {
+    "title": "Van Gogh",
+    "owner": "Nirmal314",
+    "repo": "omarchy-van-gogh-theme"
+  },
+  "velvet-night": {
+    "title": "Velvet Night",
+    "owner": "HANCORE-linux",
+    "repo": "omarchy-velvetnight-theme"
+  },
+  "venice-from-above": {
+    "title": "Venice from Above",
+    "owner": "mattbbia",
+    "repo": "venice-from-above-omarchy"
+  },
+  "vesper": {
+    "title": "Vesper",
+    "owner": "thmoee",
+    "repo": "omarchy-vesper-theme"
+  },
+  "vhs-80": {
+    "title": "VHS 80",
+    "owner": "tahayvr",
+    "repo": "omarchy-vhs80-theme"
+  },
+  "void": {
+    "title": "Void",
+    "owner": "vyrx-dev",
+    "repo": "omarchy-void-theme"
+  }
+}
