@@ -108,8 +108,9 @@ The branch you follow is the Omarchy release channel, like Omarchy's own:
 | `main` | this flake's development; changes flow `main` → `edge` → `rc` → `stable` |
 
 `.github/workflows/update-omarchy.yml` checks upstream every 6 hours, re-locks
-each channel's `omarchy` input, and merges the update once CI (the full flake
-check, including a NixOS VM test that boots the desktop) passes.
+each channel's `omarchy` input, runs the full flake check (including a NixOS
+VM test that boots the desktop) and pushes the update to the channel only
+when it passes.
 
 ## How it follows upstream
 

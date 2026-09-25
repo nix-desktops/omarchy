@@ -153,17 +153,17 @@ in
       user = "su - omarchy -c"
       shell = "systemctl --user -M omarchy@ is-active omarchy-shell.service"
       machine.wait_until_succeeds(shell, timeout=180)
-      sig = f"{user} 'ls /run/user/1000/hypr | head -1'"
-      machine.wait_until_succeeds(f"test -n \"$({sig})\"", timeout=60)
-      errors = machine.succeed(
-          f"{user} 'XDG_RUNTIME_DIR=/run/user/1000 HYPRLAND_INSTANCE_SIGNATURE=$(ls /run/user/1000/hypr | head -1) hyprctl configerrors'"
-      ).strip()
+      # Hyprland answers on its socket (the instance directory appears
+      # before it listens; slower machines see the gap).
+      env = "XDG_RUNTIME_DIR=/run/user/1000 HYPRLAND_INSTANCE_SIGNATURE=$(ls /run/user/1000/hypr | head -1)"
+      hyprland = f"{user} '{env} hyprctl version'"
+      machine.wait_until_succeeds(hyprland, timeout=120)
+      errors = machine.succeed(f"{user} '{env} hyprctl configerrors'").strip()
       assert errors in ("", "no errors"), f"Hyprland config errors:\n{errors}"
       machine.sleep(10)
       machine.succeed(shell)
 
       # Core apps: Omarchy's defaults resolve on NixOS.
-      env = "XDG_RUNTIME_DIR=/run/user/1000 HYPRLAND_INSTANCE_SIGNATURE=$(ls /run/user/1000/hypr | head -1)"
       term = machine.succeed(f"{user} 'xdg-terminal-exec --print-id'").strip()
       assert term.startswith("foot.desktop"), f"default terminal: {term}"
       browser = machine.succeed(f"{user} 'xdg-mime query default x-scheme-handler/https'").strip()
@@ -203,15 +203,13 @@ in
       eco.succeed(f"{user} 'ls ~/.nix-profile/share/applications /etc/profiles/per-user/omarchy/share/applications 2>/dev/null | grep -q YouTube.desktop'")
       eco.fail(f"{user} 'ls ~/.nix-profile/share/applications /etc/profiles/per-user/omarchy/share/applications 2>/dev/null | grep -q HEY.desktop'")
       eco.wait_until_succeeds(shell, timeout=180)
-      eco.wait_until_succeeds(f"test -n \"$({sig})\"", timeout=60)
+      eco.wait_until_succeeds(hyprland, timeout=120)
       binds = eco.succeed(f"{user} '{env} hyprctl binds -j | jq -r \".[].description\"'")
       for kept in ["YouTube", "Docker", "Terminal"]:
           assert kept in binds.splitlines(), f"missing bind: {kept}"
       for dropped in ["X", "Email", "Obsidian", "Omawrite", "Herdr"]:
           assert dropped not in binds.splitlines(), f"bind not dropped: {dropped}"
-      errors = eco.succeed(
-          f"{user} 'XDG_RUNTIME_DIR=/run/user/1000 HYPRLAND_INSTANCE_SIGNATURE=$(ls /run/user/1000/hypr | head -1) hyprctl configerrors'"
-      ).strip()
+      errors = eco.succeed(f"{user} '{env} hyprctl configerrors'").strip()
       assert errors in ("", "no errors"), f"Hyprland config errors:\n{errors}"
     '';
   };
