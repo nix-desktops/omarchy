@@ -126,6 +126,7 @@ let
     (command "omarchy-pkg-drop"               [ ])
     (command "omarchy-install-browser"        [ ])
     (command "omarchy-default-agent"          [ pkgs.jq pkgs.git pkgs.coreutils ])
+    (command "omarchy-branding-name"          [ pkgs.gum pkgs.jq pkgs.git pkgs.gnused pkgs.coreutils ])
     (command "omarchy-theme-set-browser"      [ pkgs.procps ])
     (command "omarchy-theme-set"              [ pkgs.jq pkgs.coreutils ])
     (command "omarchy-theme-install"          [ pkgs.jq pkgs.gnused pkgs.coreutils ])
@@ -140,6 +141,8 @@ let
     src = inputs.omarchy;
     inherit replacements;
     plugins = [ tools.elsewhen ];
+    branding = if cfg.branding.name == "Omarchy" then null
+      else pkgs.callPackage ../../pkgs/branding.nix { inherit (cfg.branding) name; };
   };
 
   # Programs Omarchy's shell and commands call by name. The services behind
@@ -218,6 +221,21 @@ in
         The host's NixOS config (flake) on this machine. The menu opens it
         for editing (Setup > Config, keybindings, monitors), and
         Update > Everything runs `nix flake update` in it.
+      '';
+    };
+
+    branding.name = mkOption {
+      type = types.str;
+      default = let f = cfg.stateDir + "/branding.json"; in
+        if builtins.pathExists f then (lib.importJSON f).name or "Omarchy" else "Omarchy";
+      defaultText = lib.literalExpression ''"name" from branding.json in stateDir, else "Omarchy"'';
+      example = "Willexander";
+      description = ''
+        The name the screensaver, About screen and omarchy-show-logo draw,
+        as a wordmark in Omarchy's style. The menu's Style > Branding writes
+        it to branding.json in the state directory; the NixOS module's
+        option of the same name passes it down and brands the boot splash
+        and login screen.
       '';
     };
 
@@ -336,13 +354,21 @@ in
     # NixOS update actions, Arch-only entries hidden).
     xdg.configFile."omarchy/extensions/omarchy-menu.jsonc".text = menuExtension;
 
-    # Branding the About screen and screensaver render; seeded from
-    # Omarchy's logo once, then editable from Style > About / Screensaver.
+    # Branding the About screen and screensaver render; seeded from the logo
+    # (Omarchy's, or omarchy.branding.name's), then editable from
+    # Style > About / Screensaver. Reseeded while untouched, so a new name
+    # reaches them.
     home.activation.omarchyBranding = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       dir="$HOME/.config/omarchy/branding"
+      logo=${omarchy}/share/omarchy/logo.txt
       run mkdir -p "$dir"
       for f in about.txt screensaver.txt; do
-        [ -e "$dir/$f" ] || run install -m644 ${omarchy}/share/omarchy/logo.txt "$dir/$f"
+        if [ ! -e "$dir/$f" ] \
+          || ${pkgs.diffutils}/bin/cmp -s "$dir/$f" "$dir/.$f.seeded" \
+          || ${pkgs.diffutils}/bin/cmp -s "$dir/$f" ${inputs.omarchy}/logo.txt; then
+          run install -m644 "$logo" "$dir/$f"
+          run install -m644 "$logo" "$dir/.$f.seeded"
+        fi
       done
     '';
 

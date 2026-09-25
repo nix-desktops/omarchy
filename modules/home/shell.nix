@@ -49,7 +49,13 @@ let
       "btop/themes/current.theme" = "${cfg.currentTheme}/btop.theme";
     };
     lazygit = { "lazygit/config.yml" = upstream "config/lazygit/config.yml"; };
-    fastfetch = { "fastfetch/config.jsonc" = upstream "etc/fastfetch/config.jsonc"; };
+    # The OS line says omarchy.branding.name.
+    fastfetch = { "fastfetch/config.jsonc" = if cfg.branding.name == "Omarchy"
+      then upstream "etc/fastfetch/config.jsonc"
+      else pkgs.runCommand "fastfetch-config.jsonc" { } ''
+        substitute ${upstream "etc/fastfetch/config.jsonc"} $out \
+          --replace-fail 'echo \"Omarchy $version\"' ${lib.escapeShellArg "echo \\\"${cfg.branding.name} $version\\\""}
+      ''; };
     alacritty = { "alacritty/alacritty.toml" = upstream "config/alacritty/alacritty.toml"; };
     ghostty = { "ghostty/config" = upstream "config/ghostty/config"; };
     kitty = { "kitty/kitty.conf" = upstream "config/kitty/kitty.conf"; };
