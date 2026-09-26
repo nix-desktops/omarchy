@@ -63,7 +63,7 @@ set the same options there.
 
 | Group | Installed | Options |
 | --- | --- | --- |
-| Omarchy's integrated tools and services (screenshots, screen recording, OCR, the panels' services, printing, input methods, fonts, the login screen, the boot splash) | always | `omarchy.printing.enable`, `omarchy.inputMethod.enable`, `omarchy.login.*`, `omarchy.plymouth.enable` |
+| Omarchy's integrated tools and services (screenshots, screen recording, OCR, the panels' services, printing, input methods, fonts, the login screen, the boot splash) | always | `omarchy.screenshots.autoSave`, `omarchy.printing.enable`, `omarchy.inputMethod.enable`, `omarchy.login.*`, `omarchy.plymouth.enable` |
 | Default apps: foot, Chromium, Nautilus, Neovim (with Omarchy's LazyVim config), imv, mpv, Evince, btop | by default | `omarchy.defaultApps` |
 | CLI setup: zsh (or bash) with Omarchy's aliases, functions and prompt; bat, eza, fd, fzf, ripgrep, zoxide, starship, tmux, lazygit, …; Omarchy's configs for them | by default | `omarchy.shell`, `omarchy.cli.<tool>.enable`, `omarchy.configs.<program>.enable` |
 | TUI launchers: Docker (lazydocker), Disk Usage, tmux | by default | `omarchy.tuis.<id>.enable` |

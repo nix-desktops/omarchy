@@ -36,9 +36,11 @@ Omarchy's features, commands and keybinds depend on these.
   widget). Not in nixpkgs yet; see HANDOFF item 6 (until then: hyprshot +
   satty, tte).
 - **Shell features:** hyprpicker, hyprsunset, grim, slurp,
-  gpu-screen-recorder, tesseract (OCR), zbar (QR), qrencode (Wi-Fi QR),
-  wl-clipboard, wtype, imagemagick, libvips, ffmpegthumbnailer, socat, jq,
-  gum, inotify-tools, xdg-terminal-exec.
+  gpu-screen-recorder, v4l-utils (webcam overlay), tesseract (OCR), zbar
+  (QR), qrencode (Wi-Fi QR), wl-clipboard, wtype, imagemagick, libvips,
+  ffmpeg + ffmpegthumbnailer, socat, jq, gum, inotify-tools,
+  xdg-terminal-exec, pciutils and psmisc (lspci, killall: hardware checks,
+  terminal restarts).
 - **Hardware and services behind the panels:**
   - audio: wireplumber, pamixer, alsa-utils
   - display and power: brightnessctl, ddcutil, asdcontrol,

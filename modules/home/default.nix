@@ -145,6 +145,41 @@ let
       else pkgs.callPackage ../../pkgs/branding.nix { inherit (cfg.branding) name; };
   };
 
+  # omasnap saving every capture (omarchy.screenshots.autoSave), not only
+  # copying it; see pkgs/tools/omasnap.nix.
+  omasnap = tools.omasnap.override { inherit (cfg.screenshots) autoSave; };
+
+  # gpu-screen-recorder as Omarchy finds it: the recorder, the bar's
+  # recording indicator and the Stop entry match its process with
+  # `pgrep -f "^gpu-screen-recorder"`, but nixpkgs' wrapper execs the
+  # binary by its store path (…/bin/.wrapped/gpu-screen-recorder), so a
+  # running recording was never seen and could never be stopped. Same
+  # wrapper (its env: driver libraries, /run/wrappers for gsr-kms-server),
+  # exec'd under the bare name.
+  gpuScreenRecorder = pkgs.runCommand "gpu-screen-recorder-omarchy" {
+    inherit (pkgs.gpu-screen-recorder) meta;
+  } ''
+    mkdir -p $out/bin
+    gsr=${pkgs.gpu-screen-recorder}
+    sed -E 's#^exec ("[^"]*/\.wrapped/gpu-screen-recorder")#exec -a gpu-screen-recorder \1#' \
+      $gsr/bin/gpu-screen-recorder >$out/bin/gpu-screen-recorder
+    grep -q '^exec -a gpu-screen-recorder ' $out/bin/gpu-screen-recorder
+    chmod +x $out/bin/gpu-screen-recorder
+    ln -s $gsr/bin/gsr-kms-server $out/bin/
+  '';
+
+  # LocalSend under the name Omarchy's Share menu runs (`localsend`, as
+  # Arch's package links it); nixpkgs only ships `localsend_app`.
+  localsend = pkgs.symlinkJoin {
+    name = "localsend-omarchy";
+    paths = [ pkgs.localsend ];
+    postBuild = "ln -s localsend_app $out/bin/localsend";
+  };
+
+  # PATH for the user services below: the user's profile (Omarchy's
+  # commands and runtime deps), setuid wrappers, the system.
+  servicePath = "${config.home.profileDirectory}/bin:/run/wrappers/bin:/run/current-system/sw/bin";
+
   # Programs Omarchy's shell and commands call by name. The services behind
   # them (NetworkManager, BlueZ, PipeWire, UPower, power-profiles-daemon,
   # polkit, uwsm) come from the NixOS module.
@@ -153,12 +188,15 @@ let
     # Hyprland tools match the compositor, which comes from unstable too.
     unstable.hyprpicker unstable.hyprsunset unstable.hyprland-preview-share-picker
     # Omarchy's own: screenshots, the screensaver, video wallpapers.
-    tools.omasnap tools.ttfx tools.owe
+    omasnap tools.ttfx tools.owe
     gum jq fzf curl socat perl python3 bc file
     wl-clipboard wtype inotify-tools libnotify desktop-file-utils
     udiskie                     # automount, launched by Omarchy's autostart
     satty grim slurp tesseract zbar
-    gpu-screen-recorder ffmpeg ffmpegthumbnailer vips imagemagick
+    gpuScreenRecorder ffmpeg ffmpegthumbnailer vips imagemagick
+    v4l-utils                   # v4l2-ctl: the webcam list and overlay
+    pciutils                    # lspci: omarchy-hw-* GPU/audio detection
+    psmisc                      # killall: omarchy-restart-terminal/opencode
     brightnessctl ddcutil iw qrencode xdg-terminal-exec xdg-utils gtk3
     fastfetch localsend playerctl pulseaudio pamixer alsa-utils
     dosfstools exfatprogs
@@ -236,6 +274,21 @@ in
         it to branding.json in the state directory; the NixOS module's
         option of the same name passes it down and brands the boot splash
         and login screen.
+      '';
+    };
+
+    screenshots.autoSave = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Save every screenshot (Capture > Screenshot, PRINT) to the
+        screenshot directory, `~/Pictures/Screenshots` unless
+        `OMASNAP_SCREENSHOT_DIR` or `[output] directory` in
+        ~/.config/omasnap/omasnap.conf says otherwise, as well as copying it
+        and showing Omasnap's preview. Upstream Omarchy only copies and
+        previews, saving from the editor (Ctrl+S/Enter) or with
+        `omarchy-capture-screenshot <mode> save`; set false for that.
+        `OMASNAP_AUTOSAVE=0` turns it off for one run.
       '';
     };
 
@@ -372,6 +425,55 @@ in
       done
     '';
 
+    # The folders Omarchy saves into, as omarchy-provision-user creates
+    # them on Arch: screenshots go to Pictures (omasnap makes Screenshots),
+    # screen recordings to Videos (the recorder refuses to start when it's
+    # missing), yt-dlp downloads to Videos. The XDG user dirs when set.
+    home.activation.omarchyUserDirs = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      (
+        [ -f "$HOME/.config/user-dirs.dirs" ] && . "$HOME/.config/user-dirs.dirs"
+        run mkdir -p "$HOME/Downloads" "''${XDG_PICTURES_DIR:-$HOME/Pictures}" \
+          "''${XDG_VIDEOS_DIR:-$HOME/Videos}"
+      )
+    '';
+
+    # Upstream's user units (default/systemd/user), which Omarchy's first
+    # run enables: lock the screen before suspend (a sleep-delay inhibitor
+    # that runs omarchy-system-sleep-lock on PrepareForSleep), and announce
+    # crashes with an AI diagnosis (Trigger > Toggle > Crash Capture starts
+    # and stops it; its flag file keeps it off across logins).
+    systemd.user.services.omarchy-sleep-lock = {
+      Unit = {
+        Description = "Lock the Omarchy session before system sleep";
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session.target" "omarchy-shell.service" ];
+        ConditionEnvironment = "WAYLAND_DISPLAY";
+      };
+      Service = {
+        ExecStart = "${omarchy}/bin/omarchy-system-sleep-monitor";
+        Environment = [ "OMARCHY_PATH=${omarchyPath}" "PATH=${servicePath}" ];
+        Restart = "always";
+        RestartSec = 1;
+      };
+      Install.WantedBy = [ "graphical-session.target" ];
+    };
+    systemd.user.services.omarchy-crash-watch = {
+      Unit = {
+        Description = "Announce process crashes and offer an AI diagnosis";
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session.target" ];
+        ConditionEnvironment = "WAYLAND_DISPLAY";
+        ConditionPathExists = "!%h/.local/state/omarchy/toggles/crash-capture-off";
+      };
+      Service = {
+        ExecStart = "${omarchy}/bin/omarchy-crash-watch";
+        Environment = [ "OMARCHY_PATH=${omarchyPath}" "PATH=${servicePath}" ];
+        Restart = "always";
+        RestartSec = 5;
+      };
+      Install.WantedBy = [ "graphical-session.target" ];
+    };
+
     # The shell, supervised by systemd instead of upstream's
     # omarchy-launch-shell loop. The unit embeds the package and the
     # current theme, so a rebuild that changes either restarts it (the
@@ -396,7 +498,7 @@ in
           # OWE's lock-screen feed (Owe.LockFeed), which the lock screen
           # loads when it's there.
           "QML_IMPORT_PATH=${tools.owe-lockfeed}/lib/qt6/qml"
-          "PATH=${config.home.profileDirectory}/bin:/run/wrappers/bin:/run/current-system/sw/bin"
+          "PATH=${servicePath}"
         ];
         Restart = "on-failure";
         RestartSec = 1;

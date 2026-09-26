@@ -62,11 +62,13 @@ pkgs/omarchy.nix        upstream Omarchy packaged: share/omarchy (= OMARCHY_PATH
                         shebangs patched, `replacements` installed over upstream commands, shell
                         `plugins` (elsewhen) installed, /usr paths pointed at the profiles, the
                         pacman update widget dropped from the bar
-pkgs/tools/             Omarchy's own tools, built from their repos (herdr: its own nix/package.nix)
+pkgs/tools/             Omarchy's own tools, built from their repos (herdr: its own nix/package.nix;
+                        omasnap with omasnap-autosave.patch)
 pkgs/keybinds/          upstream's bind modules run under a stub Lua → keybinds.json
 lib/catalog.nix         everything installable, as data, grouped as PACKAGES.md (lib.catalog)
-modules/home/default.nix  the desktop (Home Manager): options, the shell and owed as systemd user
-                        services, runtime deps, theme hierarchy, menu layer, NixOS commands
+modules/home/default.nix  the desktop (Home Manager): options, the shell, owed and upstream's
+                        sleep-lock and crash-watch units as systemd user services, runtime deps,
+                        the folders Omarchy saves into, theme hierarchy, menu layer, NixOS commands
 modules/home/hyprland.nix Omarchy's Hyprland config (generated hyprland.lua), keybinds option;
                         drops the binds of apps that aren't installed
 modules/home/apps.nix   default apps (omarchy.defaultApps: foot, Chromium, Nautilus, Neovim with
@@ -87,7 +89,8 @@ lib/menu.nix            NixOS layer over Omarchy's menu (see "Gotchas")
 lib/dev-templates.nix   nix-templates/dev + local framework layers (templates/)
 data/community-themes.json  112 community themes from Omarchy's manual (owner/repo)
 tests/                  flake checks: package, example home config, themes, host template, NixOS
-                        VM test (auto-login → shell up, no config errors, SUPER+RETURN opens foot)
+                        VM test (auto-login → shell up, no config errors, SUPER+RETURN opens foot,
+                        screenshots saved, recorder found and stopped, sleep lock armed)
 ```
 
 State the menu edits lives **in the host's config**, passed as
@@ -212,6 +215,41 @@ and updates; `omarchy.rebuildCommand` is how the menu applies changes.
   `omarchy-default-terminal` / `xdg-settings` can still write the user's own
   `~/.config` files. Don't manage those with Home Manager.
 
+- **Screenshots aren't saved by upstream's default flow.** Omasnap 1.21
+  (Omarchy's screenshot tool since it replaced hyprshot + satty) copies a
+  fresh capture and shows a 10-second preview; it writes a file only from
+  the editor (Ctrl+S, or Enter = copy + save) or with
+  `omarchy-capture-screenshot <mode> save`. That's the same on Arch; older
+  Omarchy saved every shot. `omarchy.screenshots.autoSave` (default on,
+  user's request) keeps every capture in `~/Pictures/Screenshots` as well
+  (pkgs/tools/omasnap-autosave.patch: `OMASNAP_AUTOSAVE` or `[output]
+  autosave`; the package sets the env default through its wrapper).
+- **Process names under nixpkgs wrappers:** `pgrep -f '^name'` matches the
+  command line, and makeWrapper's shell wrappers `exec` the store path of
+  `.wrapped/name`. Omarchy finds gpu-screen-recorder that way (the bar's
+  recording indicator, Capture > Stop, the ALT+PRINT toggle), so the
+  module's gpu-screen-recorder re-execs under the bare name (`exec -a`).
+  `pgrep -x` matches the process name: fine for unwrapped binaries and
+  Hyprland (which names itself), not for `.foo-wrapped` ones. Check new
+  upstream `pgrep`/`pkill` patterns against the real process.
+- **Folders:** omarchy-provision-user creates ~/Downloads, ~/Pictures and
+  ~/Videos on Arch; the recorder refuses to start without its Videos folder.
+  The module creates them (XDG user dirs when set) on activation.
+- **Upstream's user units** (`default/systemd/user`) aren't installed on
+  NixOS by the package; each one needed is declared in modules/home. Done:
+  owed, omarchy-sleep-lock (the lock screen before suspend; without it the
+  machine resumed unlocked), omarchy-crash-watch. Not done: bt-agent
+  (needs bluez-tools), omarchy-recover-internal-monitor, omarchy-fcitx5 (the
+  NixOS input-method module runs fcitx5), omarchy-speaker-tuning (specific
+  laptops), omarchy-tailscale-receive, omarchy-migrate-notify (Arch
+  migrations).
+- **The VM can't record the screen:** gpu-screen-recorder refuses Mesa's
+  software OpenGL, so the VM test runs Python through the recorder's own
+  wrapper to check Omarchy finds and stops it. On the author's machine
+  (2026-09-26) the stock wrapper's recording was invisible to
+  `pgrep -f '^gpu-screen-recorder'` and the module's was found, stopped with
+  SIGINT and left a playable MP4.
+
 ## Consumers
 
 `~/nixos` (the author's config; don't change it without asking) imports both
@@ -257,6 +295,22 @@ All eight items are implemented, squashed into one commit and pushed
    stays off until a `CACHIX_AUTH_TOKEN` secret exists (cache name
    `nix-desktops` in ci.yml is a placeholder).
 8. **VM test and README** — done.
+
+## Capture and file-writing tools (audited 2026-09-26)
+
+Against upstream's commands, with the port's PATH (the user profile, the
+system, /run/wrappers):
+
+| Tool | Status |
+| --- | --- |
+| Screenshot (menu, PRINT, omasnap) | worked (copy + preview); now also saved, see Gotchas |
+| Screen recording (menu, ALT+PRINT) | fixed: ~/Videos created; recorder found and stopped (`exec -a`) |
+| Recording with webcam, webcam list/resize | fixed: v4l-utils (v4l2-ctl) was missing, so the webcam entry never showed |
+| Text (OCR), QR, color picker (hyprpicker) | worked: grim, slurp, tesseract (all languages), zbar, wl-clipboard present |
+| Share (LocalSend) | fixed: `localsend` (Arch's name) links nixpkgs' `localsend_app` |
+| Transcode, yt-dlp host, clipboard open/paste | worked (ImageMagick, ffmpeg; yt-dlp comes with its ecosystem pick) |
+| Lock before suspend, Crash Capture | fixed: upstream's user units added |
+| hw checks (lspci), terminal restarts (killall) | fixed: pciutils, psmisc |
 
 ## Useful commands
 
