@@ -61,7 +61,9 @@ let
       opts = lib.optionalString (flags != [ ]) ", { ${lib.concatStringsSep ", " flags} }";
     in
     if !b.enable then "hl.unbind(${str keys})"
-    else "o.rebind(${str keys}, ${str b.description}, ${action}${opts})";
+    # What upstream's o.rebind does, spelled out: o.rebind is newer than
+    # the stable channel's upstream release (v4.0.4 has only o.bind).
+    else "hl.unbind(${str keys}); o.bind(${str keys}, ${str b.description}, ${action}${opts})";
 
   omarchyPath = "${config.home.homeDirectory}/.local/share/omarchy";
   store = "${cfg.package}/share/omarchy";
