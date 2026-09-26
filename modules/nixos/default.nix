@@ -273,6 +273,34 @@ in
       };
     };
 
+    cursor = {
+      enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          The pointer cursor theme on the login screen (SDDM and its
+          Hyprland) and, passed down as defaults, in each user's desktop
+          (Home Manager's `omarchy.cursor`: GTK, X11/XWayland, Hyprland).
+        '';
+      };
+      package = mkOption {
+        type = types.package;
+        default = pkgs.bibata-cursors;
+        defaultText = lib.literalExpression "pkgs.bibata-cursors";
+        description = "Package providing the cursor theme (under share/icons).";
+      };
+      name = mkOption {
+        type = types.str;
+        default = "Bibata-Modern-Classic";
+        description = "The cursor theme's name: its directory in the package's share/icons.";
+      };
+      size = mkOption {
+        type = types.int;
+        default = 24;
+        description = "Cursor size (upstream Omarchy uses 24).";
+      };
+    };
+
     plymouth.enable = mkOption {
       type = types.bool;
       default = true;
@@ -344,7 +372,17 @@ in
       enable = mkDefault true;
       config.include.path = "${inputs.omarchy}/config/git/config";
     };
-    environment.systemPackages = lib.optional cfg.login.enable sddmTheme;
+    # The time zone, when the config declares it: the menu's Timezone entry
+    # (omarchy-menu-timezone) points there instead of calling timedatectl,
+    # which NixOS refuses then.
+    environment.etc."omarchy/time-zone" = lib.mkIf (config.time.timeZone != null) {
+      text = config.time.timeZone;
+    };
+
+    environment.systemPackages = lib.optional cfg.login.enable sddmTheme
+      # The cursor theme in /run/current-system/sw/share/icons, where the
+      # login screen (and any other user) finds it.
+      ++ lib.optional cfg.cursor.enable cfg.cursor.package;
 
     boot.plymouth = lib.mkIf cfg.plymouth.enable {
       enable = true;
@@ -359,6 +397,22 @@ in
     services.gnome.sushi.enable = mkDefault true;
     services.gnome.gnome-keyring.enable = mkDefault true;
     programs.dconf.enable = true;
+    # The GNOME interface keys GTK apps read, as omarchy-theme-set-gnome sets
+    # them for the theme (dark/light, GTK and icon theme) plus the cursor:
+    # a system database without locks, so they're defaults a user's own
+    # choice (a settings app, a live theme switch) overrides and keeps.
+    programs.dconf.profiles.user.databases = [{
+      settings."org/gnome/desktop/interface" = {
+        color-scheme = if theme.mode == "light" then "prefer-light" else "prefer-dark";
+        gtk-theme = if theme.mode == "light" then "Adwaita" else "Adwaita-dark";
+        icon-theme = let f = theme.dir + "/icons.theme"; in
+          if builtins.pathExists f then lib.trim (builtins.readFile f) else "Yaru-blue";
+        gtk-enable-primary-paste = true;
+      } // lib.optionalAttrs cfg.cursor.enable {
+        cursor-theme = cfg.cursor.name;
+        cursor-size = lib.gvariant.mkInt32 cfg.cursor.size;
+      };
+    }];
     environment.sessionVariables.NAUTILUS_4_EXTENSION_DIR =
       "${pkgs.nautilus-python}/lib/nautilus/extensions-4";
     xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
@@ -420,8 +474,16 @@ in
         enable = mkDefault true;
         wayland.enable = true;
         theme = "omarchy";
+        # The greeter's Hyprland draws the pointer: it takes the theme from
+        # its environment (SDDM's CursorTheme reaches only the greeter).
         settings.Wayland.CompositorCommand =
-          "${config.programs.hyprland.package}/bin/start-hyprland -- --config ${greeterConfig}";
+          lib.optionalString cfg.cursor.enable
+            "${pkgs.coreutils}/bin/env XCURSOR_THEME=${cfg.cursor.name} XCURSOR_SIZE=${toString cfg.cursor.size} HYPRCURSOR_THEME=${cfg.cursor.name} HYPRCURSOR_SIZE=${toString cfg.cursor.size} XCURSOR_PATH=${cfg.cursor.package}/share/icons:/run/current-system/sw/share/icons "
+          + "${config.programs.hyprland.package}/bin/start-hyprland -- --config ${greeterConfig}";
+        settings.Theme = lib.mkIf cfg.cursor.enable {
+          CursorTheme = mkDefault cfg.cursor.name;
+          CursorSize = mkDefault cfg.cursor.size;
+        };
       };
     };
 
@@ -441,6 +503,17 @@ in
         shell = mkDefault cfg.shell;
         stateDir = mkDefault cfg.stateDir;
         branding.name = mkDefault cfg.branding.name;
+        # The keyboard layout the system was set up with.
+        keyboard = {
+          layout = mkDefault config.services.xserver.xkb.layout;
+          variant = mkDefault (if config.services.xserver.xkb.variant == "" then null else config.services.xserver.xkb.variant);
+        };
+        cursor = {
+          enable = mkDefault cfg.cursor.enable;
+          package = mkDefault cfg.cursor.package;
+          name = mkDefault cfg.cursor.name;
+          size = mkDefault cfg.cursor.size;
+        };
       }
       // lib.optionalAttrs (cfg.stateDirPath != null) { stateDirPath = mkDefault cfg.stateDirPath; }
       // lib.optionalAttrs (cfg.configDir != null) { configDir = mkDefault cfg.configDir; }
