@@ -53,7 +53,11 @@ Omarchy's features, commands and keybinds depend on these.
 
 ## 2. Default apps (default)
 
-One app per role, as Omarchy's keybinds and MIME defaults expect.
+One app per role, as Omarchy's keybinds and MIME defaults expect. Each one
+is an opt-out (`lib.catalog.defaultApps`, `omarchy.defaultApps.<id>.enable`):
+a left-out app takes its own binds (Nautilus', btop's), MIME defaults and
+config with it; the terminal and browser binds follow `omarchy.terminal` /
+`omarchy.browser` (desktop file ids).
 
 - **Terminal:** foot (SUPER+RETURN). Alternatives via
   `omarchy-default-terminal`: alacritty, ghostty, kitty.

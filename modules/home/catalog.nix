@@ -110,7 +110,10 @@ let
   keptBinds = lib.concatMap (e: e.binds) entries;
   allBinds = lib.concatMap (e: e.binds)
     (lib.concatMap lib.attrValues [ catalog.tuis catalog.apps catalog.webapps ]);
-  droppedBinds = lib.filter (k: !lib.elem k keptBinds) allBinds;
+  droppedBinds = lib.filter (k: !lib.elem k keptBinds) allBinds
+    # Core binds of default apps left out (the file manager's, btop's).
+    ++ lib.concatMap (id: catalog.defaultApps.${id}.binds)
+      (lib.filter (id: !cfg.defaultApps.${id}.enable) (ids "defaultApps"));
 in
 {
   options.omarchy = {

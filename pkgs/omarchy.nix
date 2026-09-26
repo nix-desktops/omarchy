@@ -22,7 +22,8 @@
 #   - the system defaults upstream installs under /usr/share (MIME handlers,
 #     the terminal preference list) go to $out/share, which the profile
 #     puts on XDG_DATA_DIRS.
-{ lib, stdenvNoCC, src, bash, python3, perl, jq, replacements ? [ ], plugins ? [ ], branding ? null }:
+{ lib, stdenvNoCC, writeText, src, bash, python3, perl, jq, replacements ? [ ], plugins ? [ ], branding ? null
+, menu ? null, terminal ? "foot.desktop", browser ? "chromium.desktop", droppedApps ? [ ] }:
 
 stdenvNoCC.mkDerivation {
   pname = "omarchy";
@@ -31,7 +32,7 @@ stdenvNoCC.mkDerivation {
 
   # patchShebangs resolves interpreters from the host inputs.
   buildInputs = [ bash (python3.withPackages (_: [ ])) perl ];
-  nativeBuildInputs = [ jq ];
+  nativeBuildInputs = [ jq python3 ];
   dontConfigure = true;
   dontBuild = true;
 
@@ -50,6 +51,17 @@ stdenvNoCC.mkDerivation {
       cp -r "$plugin"/share/omarchy/shell/plugins/. $share/shell/plugins/
     done
 
+    # Upstream's live theme switch, kept for the NixOS omarchy-theme-set
+    # (which records the pick in theme.json, then runs this): it stages the
+    # theme into ~/.local/state/omarchy/current and retints the running
+    # apps. The themes come from the read-only store here, so the staged
+    # copy has to be made writable (the next switch deletes it).
+    mkdir -p $share/libexec
+    cp bin/omarchy-theme-set $share/libexec/omarchy-theme-set
+    substituteInPlace $share/libexec/omarchy-theme-set \
+      --replace-fail 'cp -r "$OMARCHY_THEMES_PATH/$THEME_NAME/"*' 'cp -r --no-preserve=mode "$OMARCHY_THEMES_PATH/$THEME_NAME/"*' \
+      --replace-fail 'cp -r "$USER_THEMES_PATH/$THEME_NAME/"*' 'cp -r --no-preserve=mode "$USER_THEMES_PATH/$THEME_NAME/"*'
+
     for pkg in ${lib.escapeShellArgs replacements}; do
       for f in "$pkg"/bin/omarchy-*; do
         rm -f "$share/bin/$(basename "$f")"
@@ -60,10 +72,39 @@ stdenvNoCC.mkDerivation {
     chmod -R u+w $share
     ${lib.optionalString (branding != null) "cp ${branding}/logo.txt $share/logo.txt"}
 
-    # System defaults, where upstream puts them under /usr/share.
-    install -Dm644 default/applications/mimeapps.list $out/share/applications/mimeapps.list
-    install -Dm644 default/xdg-terminal-exec/hyprland-xdg-terminals.list \
-      $out/share/xdg-terminal-exec/hyprland-xdg-terminals.list
+    ${lib.optionalString (menu != null) ''
+      # The NixOS layer over the menu (lib/menu.nix): complete entries
+      # appended to the shipped menu, where a repeated id replaces the
+      # earlier one in place. ~/.config/omarchy/extensions stays the user's.
+      python3 - ${writeText "omarchy-menu-nixos.json" menu} $share/default/omarchy/omarchy-menu.jsonc <<'PY'
+      import json, sys
+      overrides = json.load(open(sys.argv[1]))
+      path = sys.argv[2]
+      text = open(path).read().rstrip()
+      assert text.endswith("}"), "omarchy-menu.jsonc doesn't end with }"
+      body = text[:-1].rstrip()
+      if body.endswith(","):
+          body = body[:-1]
+      lines = ["", "  // NixOS (nix-desktops/omarchy lib/menu.nix): these replace the entries above."]
+      lines += ["  %s: %s," % (json.dumps(k), json.dumps(v)) for k, v in overrides.items()]
+      open(path, "w").write(body + ",\n" + "\n".join(lines) + "\n}\n")
+      PY
+    ''}
+
+    # System defaults, where upstream puts them under /usr/share: the MIME
+    # handlers (the browser `browser`, none for default apps left out) and
+    # the terminal preference (`terminal`).
+    mkdir -p $out/share/applications $out/share/xdg-terminal-exec
+    grep -v -E ${lib.escapeShellArg "=(${lib.concatMapStringsSep "|" lib.escapeRegex ([ "chromium.desktop" ] ++ droppedApps)})$"} \
+      default/applications/mimeapps.list >$out/share/applications/mimeapps.list || true
+    ${lib.optionalString (browser != null) ''
+      for scheme in x-scheme-handler/http x-scheme-handler/https; do
+        echo "$scheme=${browser}" >>$out/share/applications/mimeapps.list
+      done
+    ''}
+    ${lib.optionalString (terminal != null) ''
+      echo ${lib.escapeShellArg terminal} >$out/share/xdg-terminal-exec/hyprland-xdg-terminals.list
+    ''}
 
     # App launchers and installers check and run /usr/bin/<app>; on NixOS
     # apps are on PATH.
@@ -80,7 +121,7 @@ stdenvNoCC.mkDerivation {
         '{~/.local,~/.nix-profile,/etc/profiles/per-user/$USER,/run/current-system/sw,/usr}/share/applications/'
     done
 
-    patchShebangs --host $share/bin $share/shell
+    patchShebangs --host $share/bin $share/libexec $share/shell
 
     for f in $share/bin/*; do
       ln -s "$f" $out/bin/

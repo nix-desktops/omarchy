@@ -71,13 +71,17 @@ modules/home/default.nix  the desktop (Home Manager): options, the shell, owed a
                         the folders Omarchy saves into, theme hierarchy, menu layer, NixOS commands
 modules/home/hyprland.nix Omarchy's Hyprland config (generated hyprland.lua), keybinds option;
                         drops the binds of apps that aren't installed
-modules/home/apps.nix   default apps (omarchy.defaultApps: foot, Chromium, Nautilus, Neovim with
-                        omarchy-nvim seeded, viewers, system tools), fonts, GTK look, keyring
+modules/home/apps.nix   default apps (omarchy.defaultApps.<id>.enable: foot, Chromium, Nautilus, Neovim
+                        with omarchy-nvim seeded, viewers, btop, fastfetch; omarchy.terminal/browser),
+                        fonts, keyring
+modules/home/seed.nix   omarchy.seededFiles: the user's files (hypr/*.lua, program configs, ~/.zshrc,
+                        the menu extension, user-dirs.dirs), seeded once, never re-managed
 modules/home/catalog.nix  CLI tools + TUI launchers (default, opt-out), ecosystem layers (apps,
                         webapps, development: enable + picks), agents (+ agents.json state,
                         defaultAgent), tools
 modules/home/shell.nix  CLI setup: omarchy.shell (zsh: omarchy.zsh = omarchy-zsh's zoptions +
-                        upstream default/bash; bash: upstream rc), omarchy.configs.<program>
+                        upstream default/bash, sourced from a seeded ~/.zshrc; bash: upstream's
+                        ~/.bashrc), omarchy.configs.<program> (seeded configs)
 modules/nixos/default.nix system side: Hyprland 0.56 (unstable) + uwsm, services the shell and core
                         apps need, lock PAM services, SDDM login + Plymouth splash (Omarchy's
                         themes), docker databases, and the desktop for `omarchy.users` via HM
@@ -90,7 +94,11 @@ lib/dev-templates.nix   nix-templates/dev + local framework layers (templates/)
 data/community-themes.json  112 community themes from Omarchy's manual (owner/repo)
 tests/                  flake checks: package, example home config, themes, host template, NixOS
                         VM test (auto-login → shell up, no config errors, SUPER+RETURN opens foot,
-                        screenshots saved, recorder found and stopped, sleep lock armed)
+                        screenshots saved, recorder found and stopped, sleep lock armed; the
+                        user's files seeded, edited and kept across re-activation and a rebuild;
+                        monitor scale kept; XDG dirs; cursor; keyboard layout; live theme switch;
+                        Install > Package rebuild from the shell's cgroup; time zone; a bash user
+                        with default apps left out on the ecosystem node)
 ```
 
 State the menu edits lives **in the host's config**, passed as
@@ -195,11 +203,11 @@ and updates; `omarchy.rebuildCommand` is how the menu applies changes.
 - **Priorities for defaults:** program configs step aside entirely when the
   host enables HM's `programs.<name>` (HM's `xdg.configFile` → `home.file`
   conversion drops priorities, so lazygit/tmux/kitty modules, which write
-  `home.file` directly, would conflict), and are otherwise linked at
-  `mkOverride 1100` (below `mkDefault`, which HM's own `xdg.configFile.text`
-  uses), git defaults go to /etc/gitconfig (the lowest git level), the login
-  shell at `mkOverride 900` (NixOS itself sets a `mkDefault` one), GTK dconf
-  values at `mkDefault` (Stylix sets them too).
+  `home.file` directly, would conflict), and are otherwise seeded as the
+  user's files (seed.nix, which also skips any path the host's HM config
+  manages), git defaults go to /etc/gitconfig (the lowest git level), the
+  login shell at `mkOverride 900` (NixOS itself sets a `mkDefault` one),
+  GTK's interface keys in the system dconf database (user values win).
 - **QML plugins must match the shell's Qt:** owe-lockfeed builds against
   nixos-unstable's Qt like Quickshell; its QML path is `lib/qt6/qml`.
 - **What doesn't build is left out** of the catalog (user's decision): see
@@ -233,8 +241,10 @@ and updates; `omarchy.rebuildCommand` is how the menu applies changes.
   Hyprland (which names itself), not for `.foo-wrapped` ones. Check new
   upstream `pgrep`/`pkill` patterns against the real process.
 - **Folders:** omarchy-provision-user creates ~/Downloads, ~/Pictures and
-  ~/Videos on Arch; the recorder refuses to start without its Videos folder.
-  The module creates them (XDG user dirs when set) on activation.
+  ~/Videos on Arch (and points Desktop, Templates and Public at $HOME); the
+  recorder refuses to start without its Videos folder. The module seeds
+  user-dirs.dirs the same way and creates every directory it names on
+  activation.
 - **Upstream's user units** (`default/systemd/user`) aren't installed on
   NixOS by the package; each one needed is declared in modules/home. Done:
   owed, omarchy-sleep-lock (the lock screen before suspend; without it the
@@ -311,6 +321,73 @@ system, /run/wrappers):
 | Transcode, yt-dlp host, clipboard open/paste | worked (ImageMagick, ffmpeg; yt-dlp comes with its ecosystem pick) |
 | Lock before suspend, Crash Capture | fixed: upstream's user units added |
 | hw checks (lspci), terminal restarts (killall) | fixed: pciutils, psmisc |
+
+## The user's files, live themes, shells (2026-09-26)
+
+From a user's reports after installing through the configurator, fixed the
+way upstream behaves and covered by the VM test:
+
+- **User files are regular files, not HM links** (`modules/home/seed.nix`,
+  `omarchy.seededFiles`): upstream's config/hypr `monitors.lua`,
+  `input.lua`, `bindings.lua`, `looknfeel.lua`, `autostart.lua`,
+  `hyprsunset.conf`; the program configs (foot, alacritty, kitty, ghostty,
+  btop, starship, tmux, lazygit, fastfetch); `~/.zshrc` + `~/.zshenv` (or
+  `~/.bashrc` + `~/.bash_profile`), which source the managed setup under
+  `~/.local/share/omarchy-nixos/`; the menu extension; user-dirs.dirs.
+  Seeded when missing, refreshed from the default only while identical to
+  the last seeded copy (`~/.local/state/omarchy/seeded/`), never overwritten
+  once edited; an old store link (HM's) becomes a copy (`adopt`, off for
+  the generated ones: the HM zshrc, the old menu layer); skipped when the
+  host manages the path itself. A copy a user made in `~/.local/state/hypr`
+  (which hyprland.lua's package.path loads first) moves to `~/.config/hypr`
+  while that one is untouched, else it keeps winning with a warning.
+  hyprland.lua loads: Omarchy's defaults, cursor env, keyboard layout,
+  dropped binds, `omarchy.keybinds`, `extraConfig`, then the user's files,
+  then toggles. The menu's Setup > Monitors/Input/Keybindings and Style >
+  Hyprland are upstream's entries again. Monitor scale set by Omarchy's own
+  command persists in monitors.lua (the "scale back to 2 after a rebuild"
+  report: there was no monitors.lua, so the runtime scale was lost at the
+  next config reload).
+- **The NixOS menu layer is in the package** (appended to
+  `default/omarchy/omarchy-menu.jsonc`, a repeated id replaces the entry in
+  place); `~/.config/omarchy/extensions/omarchy-menu.jsonc` is the user's.
+- **Themes switch live**: omarchy-theme-set records theme.json and runs
+  upstream's own switcher (kept as `share/omarchy/libexec/omarchy-theme-set`,
+  its `cp -r` from the store made writable). `current/theme` and
+  `theme.name` are no longer HM-managed; activation (`omarchyTheme`) puts
+  theme.json's theme there when that changed since the last activation
+  (stamp `current/theme.json.name`), when its own link points at an older
+  render, or when it's missing. Only the browser color policy and
+  `omarchy.theme` wait for a rebuild. omarchy-theme-set-gnome uses dconf
+  (no GSettings schemas on NixOS's search path).
+- **dconf**: the GNOME interface keys (dark/light, GTK and icon theme,
+  cursor) are a NixOS system dconf database without locks, not HM
+  `dconf.settings` re-applied on every activation.
+- **Cursor**: `omarchy.cursor.{enable,package,name,size}` (NixOS and HM;
+  Bibata-Modern-Classic 24): HM `home.pointerCursor` (gtk, x11,
+  hyprcursor) at mkDefault, XCURSOR_*/HYPRCURSOR_* in hyprland.lua (from
+  the effective home.pointerCursor), the dconf default, SDDM's
+  CursorTheme and its greeter Hyprland's env.
+- **Keyboard**: `omarchy.keyboard.{layout,variant}` (the NixOS module passes
+  services.xserver.xkb), set in hyprland.lua before input.lua, with
+  upstream's non-Latin rule ("us," first). Upstream reads XKBLAYOUT from
+  /etc/vconsole.conf, which NixOS doesn't write.
+- **Default apps are opt-outs** (`lib.catalog.defaultApps`,
+  `omarchy.defaultApps.<id>.enable`): their binds (Nautilus', btop's), MIME
+  defaults and configs go with them; `omarchy.terminal` / `omarchy.browser`
+  (desktop ids) become the package's xdg-terminals list and http(s)
+  handlers. `omarchy.shell = "bash"` installs and configures no zsh.
+- **Time zone**: `omarchy-menu-timezone` (NixOS edition) uses timedatectl
+  through polkit when `time.timeZone` is null; the NixOS module writes
+  /etc/omarchy/time-zone when it's set, and the entry says to change it in
+  the config. Update > Time is upstream's.
+- **Install > Package after a rebuild**: the menu's actions run inside the
+  omarchy-shell unit's cgroup; a rebuild that restarts the shell (package
+  or theme changed) killed the wrapper's terminal mid-rebuild and the stop
+  stalled on its root-owned sudo ("Failed to kill control group"). The unit
+  now has `KillMode=process`. The report "the wrapper no longer opens" was
+  not reproduced: in the VM it opens again after the rebuild, before and
+  after this change.
 
 ## Useful commands
 

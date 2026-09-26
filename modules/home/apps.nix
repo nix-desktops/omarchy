@@ -66,21 +66,20 @@ let
     '';
   };
 
-  defaultApps = with pkgs; [
-    # Defaults the keybinds launch.
-    (withLauncher foot "foot.desktop") chromium nautilus neovim
-    # Viewers (the MIME defaults) and system tools.
-    (withLauncher imv "imv.desktop")
-    (withLauncher (mpv.override { scripts = [ mpvScripts.mpris ]; }) "mpv.desktop")
-    evince btop fastfetch gnome-disk-utility libsecret
-  ];
+  # The default apps (lib/catalog.nix `defaultApps`), as Omarchy runs them.
+  defaultAppPackages = with pkgs; {
+    foot = withLauncher foot "foot.desktop";
+    inherit chromium nautilus neovim;
+    imv = withLauncher imv "imv.desktop";
+    mpv = withLauncher (mpv.override { scripts = [ mpvScripts.mpris ]; }) "mpv.desktop";
+    inherit evince btop fastfetch;
+  };
+  catalog = import ../../lib/catalog.nix;
+  enabledApps = lib.filter (id: cfg.defaultApps.${id}.enable) (lib.attrNames catalog.defaultApps);
+  roleDefault = role: let
+      ids = lib.filter (id: (catalog.defaultApps.${id}.role or null) == role) enabledApps;
+    in if ids == [ ] then null else catalog.defaultApps.${lib.head ids}.desktop;
 
-  # The theme's icon color (Yaru-<color>), as omarchy-theme-set-gnome
-  # applies it.
-  iconsFile = cfg.theme.dir + "/icons.theme";
-  iconTheme = if builtins.pathExists iconsFile
-    then lib.trim (builtins.readFile iconsFile)
-    else "Yaru-blue";
 in
 {
   options.omarchy = {
@@ -94,24 +93,55 @@ in
       '';
     };
 
-    defaultApps = mkOption {
-      type = types.listOf types.package;
-      default = defaultApps;
-      defaultText = lib.literalMD "foot, Chromium, Nautilus, Neovim, imv, mpv, Evince, btop, fastfetch, GNOME Disks";
+    defaultApps = lib.mapAttrs (id: e: {
+      enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Install ${e.name} (${e.description}), one of Omarchy's default apps.";
+      };
+    }) catalog.defaultApps;
+
+    terminal = mkOption {
+      type = types.nullOr types.str;
+      default = roleDefault "terminal";
+      defaultText = lib.literalMD ''"foot.desktop" while `omarchy.defaultApps.foot` is on, else null'';
+      example = "com.mitchellh.ghostty.desktop";
       description = ''
-        The default apps Omarchy's core features launch: terminal, browser,
-        file manager, editor, the viewers its MIME defaults open, and the
-        system tools its menu and binds call. Replace or filter the list to
-        swap one out, e.g.
-        `lib.filter (p: lib.getName p != "evince") options.omarchy.defaultApps.default`.
+        The terminal's desktop file: what SUPER+RETURN, the menu and every
+        `xdg-terminal-exec` launch (Omarchy's system-wide preference; Setup >
+        Defaults > Terminal still sets the user's own). Null: whichever
+        terminal is installed.
       '';
+    };
+
+    browser = mkOption {
+      type = types.nullOr types.str;
+      default = roleDefault "browser";
+      defaultText = lib.literalMD ''"chromium.desktop" while `omarchy.defaultApps.chromium` is on, else null'';
+      example = "brave-browser.desktop";
+      description = ''
+        The browser's desktop file, the system-wide default for web links
+        (SUPER+SHIFT+B opens the default browser). Web apps need a
+        Chromium-based one. Null: no default set here.
+      '';
+    };
+
+    droppedApps = mkOption {
+      type = types.listOf types.str;
+      internal = true;
+      default = map (id: catalog.defaultApps.${id}.desktop)
+        (lib.filter (id: !cfg.defaultApps.${id}.enable && catalog.defaultApps.${id} ? desktop)
+          (lib.attrNames catalog.defaultApps));
+      description = "Desktop files of default apps left out (their MIME defaults are dropped).";
     };
   };
 
   config = lib.mkIf cfg.enable {
     # Low priority: a host's own package providing the same command (tealdeer's
     # tldr, its own neovim, …) wins instead of colliding.
-    home.packages = map lib.lowPrio (cfg.defaultApps ++ (with pkgs; [
+    home.packages = map lib.lowPrio (map (id: defaultAppPackages.${id}) enabledApps ++ (with pkgs; [
+      # System tools the menu calls.
+      gnome-disk-utility libsecret
       # Fonts: Omarchy's monospace and its fallbacks (default/fontconfig).
       nerd-fonts.jetbrains-mono liberation_ttf noto-fonts noto-fonts-cjk-sans
       noto-fonts-color-emoji font-awesome
@@ -134,24 +164,20 @@ in
       EDITOR = lib.mkDefault "omarchy-launch-editor --inline";
     };
 
-    # omarchy-theme-set-gnome, applied on every activation from the active
-    # theme. Defaults, so host theming (Stylix, gtk.*) wins.
-    dconf.settings."org/gnome/desktop/interface" = lib.mapAttrs (_: lib.mkDefault) {
-      color-scheme = if cfg.theme.mode == "light" then "prefer-light" else "prefer-dark";
-      gtk-theme = if cfg.theme.mode == "light" then "Adwaita" else "Adwaita-dark";
-      icon-theme = iconTheme;
-      gtk-enable-primary-paste = true;
-    };
+    # The GNOME interface keys (dark/light, GTK and icon theme, cursor) are
+    # system defaults (the NixOS module's dconf database); a theme switch
+    # sets the user's own (omarchy-theme-set-gnome), as upstream.
 
     # Nautilus extensions (send with LocalSend, transcode).
-    xdg.dataFile."nautilus-python/extensions".source =
-      inputs.omarchy + "/default/nautilus-python/extensions";
+    xdg.dataFile."nautilus-python/extensions" = lib.mkIf cfg.defaultApps.nautilus.enable {
+      source = inputs.omarchy + "/default/nautilus-python/extensions";
+    };
 
     # Omarchy's Neovim config (omarchy-nvim), seeded once as upstream's
     # omarchy-nvim-setup does: a writable copy (lazy.nvim and the user edit
     # it), with the theme linked to the current Omarchy theme. An existing
     # ~/.config/nvim is left alone.
-    home.activation.omarchyNeovim = lib.mkIf cfg.configs.neovim.enable
+    home.activation.omarchyNeovim = lib.mkIf (cfg.configs.neovim.enable && cfg.defaultApps.neovim.enable)
       (lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         nvim="$HOME/.config/nvim"
         if [ ! -e "$nvim" ]; then

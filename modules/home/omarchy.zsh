@@ -1,9 +1,9 @@
 # Omarchy's shell setup for zsh, as upstream's omarchy-zsh package lays it
 # out: its zsh options, key bindings, completion and fzf widgets (zoptions,
 # from omacom/omarchy-zsh), then the shared config (envs, aliases,
-# functions and tool init from the omarchy input's default/bash). Generated
-# into ~/.zshrc by nix-desktops/omarchy (omarchy.shell = "zsh"); your own
-# zsh config runs after it and wins.
+# functions and tool init from the omarchy input's default/bash). Sourced
+# from ~/.zshrc (seeded by nix-desktops/omarchy, omarchy.shell = "zsh");
+# your own lines there run after it and win.
 #
 # Upstream's bash files are sourced as they are wherever zsh can run them:
 # envs as POSIX sh, the aliases and functions under ksh emulation, which
