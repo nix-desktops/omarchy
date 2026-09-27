@@ -40,8 +40,8 @@ let
     when = "omarchy-pkg-present ${attr}";
     action = term "omarchy-pkg-remove ${attr}";
   };
-  # The host's NixOS config (omarchy.configDir): Hyprland, keybinds and
-  # monitors are generated from it.
+  # The host's NixOS config (omarchy.configDir): hyprland.lua is generated
+  # from it.
   editConfig = { action = "omarchy-launch-config-editor \"$OMARCHY_CONFIG\""; };
   scaffold = { disabled = "false"; };
 
@@ -69,14 +69,15 @@ let
       aliases = [ "unlock" "branding" "name" ];
       action = term "omarchy-branding-name";
     };
-    "style.hyprland" = editConfig;
+    # Style > Hyprland opens ~/.config/hypr/looknfeel.lua as upstream: the
+    # user's own file (modules/home/hyprland.nix seeds it).
 
     # ---- Setup -----------------------------------------------------------
-    # Hyprland, keybinds and the monitor layout are generated from the
-    # host's NixOS config.
-    "setup.monitors" = editConfig;
-    "setup.keybindings" = editConfig // { when = ""; };
-    "setup.input" = hide;
+    # Monitors, Keybindings and Input open ~/.config/hypr/{monitors,
+    # bindings,input}.lua as upstream: the user's own files, seeded once
+    # and loaded after the host's config. hyprland.lua itself is generated
+    # from the NixOS config (omarchy.keybinds, omarchy.hyprland.extraConfig),
+    # so Config > Hyprland opens that.
     "setup.config.hyprland" = editConfig;
     "setup.config.repo" = { icon = g "e702"; label = "Config Repo"; action = "omarchy-launch-config-editor \"$OMARCHY_CONFIG\""; };
     "setup.config.lazygit" = { icon = "󰊢"; label = "Config Repo (lazygit)"; action = "xdg-terminal-exec --app-id=org.omarchy.terminal --dir=\"$OMARCHY_CONFIG\" lazygit"; };
@@ -216,8 +217,9 @@ let
     "update.config" = hide;
     "update.themes" = hide;
     "update.firmware" = hide;
-    "update.timezone" = hide;
-    "update.time" = hide;
+    # Timezone runs the NixOS omarchy-menu-timezone (timedatectl while
+    # time.timeZone is null, a pointer to the config when it's set); Time
+    # restarts systemd-timesyncd as upstream.
     "update.password.drive" = hide;
   };
 

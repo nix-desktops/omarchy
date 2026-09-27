@@ -4,15 +4,14 @@
 #
 #   omarchy.shell            the shell that gets the setup: zsh (upstream's
 #                            omarchy-zsh + the shared default/bash, see
-#                            omarchy.zsh) or bash (upstream's rc as it is)
+#                            omarchy.zsh) or bash (upstream's ~/.bashrc)
 #   omarchy.configs.<name>   per-program opt-out
 #
-# Configs are upstream's own files (config/ and etc/ in the omarchy input).
-# A host that enables Home Manager's programs.<name> manages that program's
-# config itself, so Omarchy's steps aside; otherwise it's linked below
-# `mkDefault`, so the host's own xdg.configFile (whose text is a mkDefault
-# source) still wins. They take their colors from the current theme
-# (~/.local/state/omarchy/current/theme), as upstream's do.
+# Configs are upstream's own files (config/ and etc/ in the omarchy input),
+# seeded once as the user's files (seed.nix), as upstream copies them. A host
+# that enables Home Manager's programs.<name>, or links the file itself,
+# manages that config, so Omarchy's steps aside. They take their colors from
+# the current theme (~/.local/state/omarchy/current/theme), as upstream's do.
 { inputs }:
 { config, lib, pkgs, ... }:
 let
@@ -43,11 +42,8 @@ let
     foot = { "foot/foot.ini" = upstream "config/foot/foot.ini"; };
     starship = { "starship.toml" = upstream "config/starship.toml"; };
     tmux = { "tmux/tmux.conf" = upstream "config/tmux/tmux.conf"; };
-    btop = {
-      "btop/btop.conf" = upstream "config/btop/btop.conf";
-      # color_theme = "current"
-      "btop/themes/current.theme" = "${cfg.currentTheme}/btop.theme";
-    };
+    # color_theme = "current": btop/themes/current.theme, below.
+    btop = { "btop/btop.conf" = upstream "config/btop/btop.conf"; };
     lazygit = { "lazygit/config.yml" = upstream "config/lazygit/config.yml"; };
     # The OS line says omarchy.branding.name.
     fastfetch = { "fastfetch/config.jsonc" = if cfg.branding.name == "Omarchy"
@@ -61,10 +57,12 @@ let
     kitty = { "kitty/kitty.conf" = upstream "config/kitty/kitty.conf"; };
   };
 
+  # A default app's config follows the app (omarchy.defaultApps.<name>).
   configOption = name: description: {
     enable = mkOption {
       type = types.bool;
-      default = true;
+      default = cfg.defaultApps.${name}.enable or true;
+      defaultText = lib.literalMD "`true` (for a default app: whether it's installed)";
       inherit description;
     };
   };
@@ -93,26 +91,89 @@ in
   };
 
   config = lib.mkIf cfg.enable (lib.mkMerge [
-    (lib.mkIf (cfg.configs.shell.enable && cfg.shell == "zsh") {
-      programs.zsh.enable = mkDefault true;
+    # zsh. Upstream's ~/.bashrc is a user file that sources Omarchy's rc; here
+    # ~/.zshrc is the same: seeded once (seed.nix), sourcing the managed
+    # setup, then the user's own lines. A host that manages ~/.zshrc through
+    # Home Manager's programs.zsh gets the setup in there instead.
+    (lib.mkIf (cfg.configs.shell.enable && cfg.shell == "zsh" && config.programs.zsh.enable) {
       # Before the host's own init (default order 1000), so its settings win.
       programs.zsh.initContent = lib.mkOrder 800 ''
         source ${zshSetup}
       '';
     })
+    (lib.mkIf (cfg.configs.shell.enable && cfg.shell == "zsh" && !config.programs.zsh.enable) {
+      # Session variables for every zsh (login, scripts, ssh commands), as
+      # Home Manager's own ~/.zshenv does; also the user's file.
+      home.file.".local/share/omarchy-nixos/zshenv".text = ''
+        # Home Manager's session variables, managed by nix-desktops/omarchy.
+        [[ -r ${config.home.profileDirectory}/etc/profile.d/hm-session-vars.sh ]] \
+          && source ${config.home.profileDirectory}/etc/profile.d/hm-session-vars.sh
+      '';
+      omarchy.seededFiles.".zshenv".adopt = false;
+      omarchy.seededFiles.".zshenv".source = pkgs.writeText "zshenv" ''
+        # Session variables (managed); add your own below.
+        source ~/.local/share/omarchy-nixos/zshenv
+      '';
+      home.file.".local/share/omarchy-nixos/zshrc".text = ''
+        # Omarchy's shell setup for zsh, managed by nix-desktops/omarchy
+        # (rewritten on every rebuild). Your own lines go in ~/.zshrc.
+        [[ -r ${config.home.profileDirectory}/etc/profile.d/hm-session-vars.sh ]] \
+          && source ${config.home.profileDirectory}/etc/profile.d/hm-session-vars.sh
+        source ${zshSetup}
+      '';
+      omarchy.seededFiles.".zshrc".adopt = false;
+      omarchy.seededFiles.".zshrc".source = pkgs.writeText "zshrc" ''
+        # All the default Omarchy aliases and functions
+        # (don't mess with these directly, just overwrite them here!)
+        source ~/.local/share/omarchy-nixos/zshrc
 
-    (lib.mkIf (cfg.configs.shell.enable && cfg.shell == "bash") {
-      programs.bash.enable = mkDefault true;
+        # Add your own exports, aliases, and functions here.
+        #
+        # Make an alias for invoking commands you use constantly
+        # alias p='python'
+      '';
+    })
+
+    # bash: upstream's own ~/.bashrc (default/bashrc), sourcing its rc from
+    # OMARCHY_PATH, and a ~/.bash_profile that reads it in login shells (as
+    # Arch's skeleton does). A host that manages them through Home Manager's
+    # programs.bash gets the rc sourced there instead.
+    (lib.mkIf (cfg.configs.shell.enable && cfg.shell == "bash" && config.programs.bash.enable) {
       programs.bash.initExtra = lib.mkBefore ''
         source "$OMARCHY_PATH/default/bash/rc"
       '';
     })
+    (lib.mkIf (cfg.configs.shell.enable && cfg.shell == "bash" && !config.programs.bash.enable) {
+      omarchy.seededFiles.".bashrc".adopt = false;
+      omarchy.seededFiles.".bash_profile".adopt = false;
+      omarchy.seededFiles.".bashrc".source = pkgs.runCommand "bashrc" { } ''
+        {
+          echo '# Session variables (Home Manager)'
+          echo '[[ -r ${config.home.profileDirectory}/etc/profile.d/hm-session-vars.sh ]] && source ${config.home.profileDirectory}/etc/profile.d/hm-session-vars.sh'
+          # Upstream's bootstrap points OMARCHY_PATH at /usr/share/omarchy;
+          # the session sets it here.
+          grep -v 'env-bootstrap' ${upstream "default/bashrc"}
+        } >$out
+      '';
+      omarchy.seededFiles.".bash_profile".source = pkgs.writeText "bash_profile" ''
+        [[ -f ~/.bashrc ]] && . ~/.bashrc
+      '';
+    })
 
+    # Program configs: the user's files, seeded once from upstream (seed.nix;
+    # they follow the theme through their includes of
+    # ~/.local/state/omarchy/current/theme). Steps aside when the host
+    # enables Home Manager's programs.<name>.
     {
-      xdg.configFile = lib.concatMapAttrs (name: files:
+      omarchy.seededFiles = lib.concatMapAttrs (name: files:
         lib.optionalAttrs (cfg.configs.${name}.enable && !(config.programs.${name}.enable or false))
-          (lib.mapAttrs (_: source: { source = lib.mkOverride 1100 source; }) files))
+          (lib.mapAttrs' (target: source: lib.nameValuePair ".config/${target}" { inherit source; }) files))
         programs;
     }
+    # btop's theme is the current Omarchy theme's (as upstream links it).
+    (lib.mkIf (cfg.configs.btop.enable && !(config.programs.btop.enable or false)) {
+      xdg.configFile."btop/themes/current.theme".source =
+        config.lib.file.mkOutOfStoreSymlink "${config.xdg.stateHome}/omarchy/current/theme/btop.theme";
+    })
   ]);
 }

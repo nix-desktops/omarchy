@@ -75,3 +75,6 @@ mv "$tmp" "$theme_json"
 
 echo ":: Installed '$name'; switching to it."
 omarchy-nixos-rebuild
+# The rebuild made the theme current; retint the running session with it,
+# as a live switch does (omarchy-theme-set).
+"${OMARCHY_PATH:-$HOME/.local/share/omarchy}/libexec/omarchy-theme-set" "$name"

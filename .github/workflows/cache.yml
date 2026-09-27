@@ -1,0 +1,47 @@
+# Omarchy's own packages (Herdr, Aether, omacut, …) in the binary cache
+# (https://nix-desktops.cachix.org), built as installs build them: hosts'
+# flakes make this flake follow their nixpkgs, and installers lock the
+# newest nixos-26.05, so they're built against that. Runs after every push
+# to a channel branch and every 6 hours (nixos-26.05 moves every few days).
+# Machines that trust the cache download them instead of compiling.
+name: Cache
+
+on:
+  push:
+    branches: [stable, rc, edge, main]
+  schedule:
+    - cron: "41 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cache-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        # What the Configurator installs (stable) and what the other
+        # channels' users run.
+        branch: [stable, rc, edge]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v16
+        with:
+          name: nix-desktops
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build Omarchy's packages against the newest nixos-26.05
+        run: |
+          nixpkgs=github:NixOS/nixpkgs/nixos-26.05
+          packages=$(nix eval --json .#packages.x86_64-linux --apply builtins.attrNames | jq -r '.[]')
+          nix build --no-link --print-build-logs --override-input nixpkgs "$nixpkgs" \
+            $(printf '.#packages.x86_64-linux.%s ' $packages)
