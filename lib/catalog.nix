@@ -43,6 +43,7 @@ let
 in
 {
   layers = {
+    defaultApps = "default";
     cli = "default";
     tuis = "default";
     apps = "ecosystem";
@@ -50,6 +51,32 @@ in
     development = "ecosystem";
     agents = "picked";
     tools = "picked";
+  };
+
+  # ------------------------------------------------ Default apps (default)
+  # One app per role, as Omarchy's binds and MIME defaults expect; each one
+  # opt-out (`omarchy.defaultApps.<id>.enable`). modules/home/apps.nix builds
+  # them (Omarchy's launchers and flags). `desktop` is the desktop file its
+  # MIME defaults name; `role` says which of `omarchy.terminal` /
+  # `omarchy.browser` it fills. Core binds that launch the app itself go
+  # with it; the terminal, browser and editor binds launch whichever one is
+  # the default.
+  defaultApps = {
+    foot = entry { name = "foot"; description = "Terminal"; attrs = [ "foot" ]; desktop = "foot.desktop"; role = "terminal"; };
+    chromium = entry { name = "Chromium"; description = "Browser (web apps need a Chromium-based one)"; attrs = [ "chromium" ]; desktop = "chromium.desktop"; role = "browser"; };
+    nautilus = entry {
+      name = "Files";
+      description = "Nautilus, the file manager";
+      attrs = [ "nautilus" ];
+      desktop = "org.gnome.Nautilus.desktop";
+      binds = [ "SUPER + SHIFT + F" "SUPER + ALT + SHIFT + F" ];
+    };
+    neovim = entry { name = "Neovim"; description = "Editor, with Omarchy's LazyVim config"; attrs = [ "neovim" ]; desktop = "nvim.desktop"; };
+    imv = entry { name = "imv"; description = "Image viewer"; attrs = [ "imv" ]; desktop = "imv.desktop"; };
+    mpv = entry { name = "mpv"; description = "Media player"; attrs = [ "mpv" ]; desktop = "mpv.desktop"; };
+    evince = entry { name = "Evince"; description = "PDF viewer"; attrs = [ "evince" ]; desktop = "org.gnome.Evince.desktop"; };
+    btop = entry { name = "btop"; description = "Activity monitor"; attrs = [ "btop" ]; binds = [ "SUPER + CTRL + T" ]; };
+    fastfetch = entry { name = "fastfetch"; description = "System summary"; attrs = [ "fastfetch" ]; };
   };
 
   # -------------------------------------------------- CLI setup (default)

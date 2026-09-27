@@ -1,0 +1,66 @@
+diff -ru a/src/editor.cpp b/src/editor.cpp
+--- a/src/editor.cpp
++++ b/src/editor.cpp
+@@ -3938,6 +3938,20 @@
+     if (mode == OutputMode::CopyAndPreview) {
+       static_cast<void>(launchPinnedCapture(image, selection.size().toSize(),
+                                             true, PinLifetime::Timed, result.error, launcher));
++      // Auto-save: keep every fresh capture on disk too, as Save would. A
++      // failed save is logged; the copy and the preview still stand.
++      if (!image.isNull() && loadAutoSave(defaultConfigPath())) {
++        QString saveError;
++        const QString savePath = temporaryExportPath();
++        if (savePath.isEmpty() ||
++            !saveTemporarySnapshot(image, savePath, saveError, -1) ||
++            moveSnapshotToScreenshots(savePath, saveError, appSlug).isEmpty()) {
++          if (!savePath.isEmpty())
++            QFile::remove(savePath);
++          qWarning().noquote() << QStringLiteral("Could not auto-save screenshot: %1")
++                                      .arg(saveError);
++        }
++      }
+       return result;
+     }
+     if (!image.isNull())
+diff -ru a/src/output-config.cpp b/src/output-config.cpp
+--- a/src/output-config.cpp
++++ b/src/output-config.cpp
+@@ -95,6 +95,24 @@
+              .toLower() != QStringLiteral("translucent");
+ }
+ 
++static bool parseSwitch(const QString &value, bool fallback) {
++  const QString v = value.trimmed().toLower();
++  if (v == QStringLiteral("1") || v == QStringLiteral("true") ||
++      v == QStringLiteral("yes") || v == QStringLiteral("on"))
++    return true;
++  if (v == QStringLiteral("0") || v == QStringLiteral("false") ||
++      v == QStringLiteral("no") || v == QStringLiteral("off"))
++    return false;
++  return fallback;
++}
++
++bool loadAutoSave(const QString &filePath) {
++  QSettings settings(filePath, QSettings::IniFormat);
++  const bool configured = parseSwitch(
++      settings.value(QStringLiteral("output/autosave")).toString(), false);
++  return parseSwitch(qEnvironmentVariable("OMASNAP_AUTOSAVE"), configured);
++}
++
+ QString defaultConfigPath() {
+   return QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) +
+          QStringLiteral("/omasnap/omasnap.conf");
+diff -ru a/src/output-config.hpp b/src/output-config.hpp
+--- a/src/output-config.hpp
++++ b/src/output-config.hpp
+@@ -42,5 +42,10 @@
+  *  solid backdrop instead of the overlay's see-through dim. */
+ [[nodiscard]] bool loadEditorWindowBackdropOpaque(const QString &filePath);
+ 
++/** True when fresh captures (the default copy-and-preview flow) are also
++ *  saved to the screenshot directory: OMASNAP_AUTOSAVE (1/true/yes/on or
++ *  0/false/no/off) when set, else [output] autosave. Off by default. */
++[[nodiscard]] bool loadAutoSave(const QString &filePath);
++
+ /** ~/.config/omasnap/omasnap.conf (XDG config location). */
+ [[nodiscard]] QString defaultConfigPath();
