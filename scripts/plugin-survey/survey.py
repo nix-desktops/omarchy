@@ -20,6 +20,7 @@ summary (by category) is printed and written to <state>/summary.md.
 See README.md next to this script.
 """
 import argparse
+import base64
 import collections
 import concurrent.futures as cf
 import json
@@ -141,18 +142,34 @@ def clone(p, repos):
         return None, f"not an https URL: {url}"
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_LFS_SKIP_SMUDGE="1", GIT_CONFIG_NOSYSTEM="1",
                GIT_CONFIG_GLOBAL="/dev/null", GIT_ASKPASS="true")
+    # GitHub throttles anonymous clones by answering "Repository not
+    # found", so a GitHub token (GH_TOKEN or GITHUB_TOKEN, as `gh` and
+    # Actions provide) goes along as a header, through the environment so
+    # it never shows on a command line, and throttled clones are retried.
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token and url.startswith("https://github.com/"):
+        auth = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        env.update(GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="http.https://github.com/.extraheader",
+                   GIT_CONFIG_VALUE_0=f"AUTHORIZATION: basic {auth}")
     tmp = d + ".tmp"
-    shutil.rmtree(tmp, ignore_errors=True)
-    # Nothing from the repository runs: no hooks, no submodules, no LFS
-    # filters, no checkout-time helpers.
-    r = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never",
-                        "-c", "protocol.https.allow=always", "-c", "core.symlinks=true",
-                        "clone", "--quiet", "--depth", "1", "--no-tags", "--single-branch",
-                        "--no-recurse-submodules", "--", url, tmp],
-                       env=env, capture_output=True, text=True, timeout=180)
-    if r.returncode != 0:
+    for attempt in range(5):
         shutil.rmtree(tmp, ignore_errors=True)
-        return None, (r.stderr.strip() or "git clone failed")[-500:]
+        # Nothing from the repository runs: no hooks, no submodules, no LFS
+        # filters, no checkout-time helpers.
+        r = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never",
+                            "-c", "protocol.https.allow=always", "-c", "core.symlinks=true",
+                            "clone", "--quiet", "--depth", "1", "--no-tags", "--single-branch",
+                            "--no-recurse-submodules", "--", url, tmp],
+                           env=env, capture_output=True, text=True, timeout=180)
+        if r.returncode == 0:
+            break
+        # With a token, "not found" means gone or private.
+        throttled = re.search(r"rate limit|429" if token else r"not found|rate limit|429|Authentication failed",
+                              r.stderr, re.I)
+        if not throttled or attempt == 4:
+            shutil.rmtree(tmp, ignore_errors=True)
+            return None, (r.stderr.strip() or "git clone failed")[-500:]
+        time.sleep(15 * 2 ** attempt)
     os.rename(tmp, d)
     return d, None
 
@@ -436,7 +453,9 @@ def main():
     done = set()
     if not a.redo and os.path.exists(os.path.join(state, "results.jsonl")):
         with open(os.path.join(state, "results.jsonl")) as f:
-            done = {json.loads(l)["id"] for l in f}
+            latest = {r["id"]: r for r in map(json.loads, f)}
+        # A clone that failed is tried again (it may have been throttled).
+        done = {i for i, r in latest.items() if r["category"] != "clone-failed"}
     todo = [p for p in plugins if p["id"] not in done]
     log(f"{len(plugins)} selected, {len(plugins) - len(todo)} already done, {len(todo)} to go")
 
