@@ -84,6 +84,13 @@
       # Omarchy's keybinds are `packages.<system>.keybinds`.
       lib.catalog = import ./lib/catalog.nix;
 
+      # An Omarchy shell plugin from its source, as the shell loads it (its
+      # files, checked with upstream's validator), for `omarchy.plugins.<id>.src`
+      # or anywhere else a plugin is needed as a package:
+      #   omarchy.lib.mkPlugin { inherit pkgs; id = "acme.weather"; src = inputs.acme-weather; }
+      lib.mkPlugin = { pkgs, src, id ? null, version ? null }:
+        pkgs.callPackage ./pkgs/plugin.nix { omarchySrc = inputs.omarchy; } { inherit src id version; };
+
       # The dev environments behind Install > Development, also usable
       # directly: `nix flake new -t github:nix-desktops/omarchy#rust myproject`.
       # Every nix-templates/dev template plus the framework layers in
@@ -111,6 +118,13 @@
         omarchy = pkgs.callPackage ./pkgs/omarchy.nix {
           src = inputs.omarchy;
           plugins = [ self.packages.${pkgs.stdenv.hostPlatform.system}.elsewhen ];
+        };
+        # `omarchy plugin doctor` on its own (it's also one of the desktop's
+        # commands), e.g. to check a plugin before adding it:
+        #   nix run github:nix-desktops/omarchy#plugin-doctor -- ./some-plugin
+        plugin-doctor = pkgs.callPackage ./pkgs/plugin-doctor.nix {
+          quickshell = (import inputs.nixpkgs-unstable { inherit (pkgs.stdenv.hostPlatform) system; }).quickshell;
+          qmlModules = with (import inputs.nixpkgs-unstable { inherit (pkgs.stdenv.hostPlatform) system; }).kdePackages; [ qt5compat qtmultimedia ];
         };
       } // (import ./pkgs/tools { inherit pkgs inputs; }) // {
         # Omarchy's default keybinds as data (keybinds.json).

@@ -122,6 +122,13 @@ let
     || config.services.displayManager.gdm.enable or false
     || config.services.xserver.displayManager.lightdm.enable;
 
+  # /usr/share/omarchy: the first desktop user's package (it carries their
+  # menu layer and branding), else upstream's as this flake packages it.
+  firstUser = lib.findFirst (u: cfg.homeManager.enable && hasHomeManager
+    && config.home-manager.users ? ${u} && config.home-manager.users.${u}.omarchy.enable or false) null cfg.users;
+  usrShareOmarchy = if firstUser != null then config.home-manager.users.${firstUser}.omarchy.package
+    else pkgs.callPackage ../../pkgs/omarchy.nix { src = inputs.omarchy; };
+
   # The active theme, for the browser color policy.
   theme = import ../../lib/theme.nix { inherit (inputs) omarchy; inherit (cfg) stateDir; };
 in
@@ -299,6 +306,43 @@ in
         default = 24;
         description = "Cursor size (upstream Omarchy uses 24).";
       };
+    };
+
+    envfs.enable = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        NixOS's envfs (`services.envfs`) on /usr/bin and /bin: a path like
+        /usr/bin/python3 or /usr/bin/omarchy-notification-send resolves to
+        that command on the PATH of the process asking (for the shell's
+        plugins: the omarchy-shell unit's PATH, which has the user's
+        profile), so the shell plugins and scripts written for Arch that
+        run /usr/bin/<cmd> or start with `#!/usr/bin/bash` work. A command
+        that isn't on the caller's PATH stays missing (bash, sh and env are
+        always there). About a third of the community's plugins need this.
+      '';
+    };
+
+    usrShare.enable = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        /usr/share/omarchy (Omarchy's files, OMARCHY_PATH on Arch) and
+        /usr/share/zoneinfo, as links (systemd-tmpfiles), for shell plugins
+        that read them at those paths. /usr/share/omarchy is the first
+        desktop user's Omarchy package (their menu layer and branding).
+      '';
+    };
+
+    plugins = mkOption {
+      type = types.attrsOf (import ../plugin-options.nix { inherit lib; });
+      default = { };
+      description = ''
+        Omarchy shell plugins for every user in `omarchy.users` (passed to
+        their Home Manager `omarchy.plugins`): by manifest id, with a
+        source (`src`, or `url` + `rev` + `hash`) to install and switch
+        one on, and `packages` it runs. See the Home Manager option.
+      '';
     };
 
     plymouth.enable = mkOption {
@@ -487,6 +531,18 @@ in
       };
     };
 
+    # Shell plugins written for Arch: /usr/bin/<cmd> and #!/usr/bin/bash
+    # through envfs, Omarchy's files at /usr/share/omarchy.
+    services.envfs.enable = lib.mkIf cfg.envfs.enable (mkDefault true);
+    services.envfs.extraFallbackPathCommands = lib.mkIf cfg.envfs.enable ''
+      ln -s ${pkgs.bashInteractive}/bin/bash $out/bash
+    '';
+    systemd.tmpfiles.rules = lib.mkIf cfg.usrShare.enable [
+      "d /usr/share 0755 root root -"
+      "L+ /usr/share/omarchy - - - - ${usrShareOmarchy}/share/omarchy"
+      "L+ /usr/share/zoneinfo - - - - /etc/zoneinfo"
+    ];
+
     assertions = [{
       assertion = cfg.homeManager.enable -> hasHomeManager;
       message = "omarchy.homeManager.enable needs Home Manager's NixOS module (home-manager.nixosModules.home-manager) imported.";
@@ -500,6 +556,8 @@ in
       omarchy = {
         enable = mkDefault true;
         ecosystem.enable = mkDefault cfg.ecosystem.enable;
+        # Only what's set, so a user's own definitions merge with them.
+        plugins = lib.mapAttrs (_: p: lib.filterAttrs (_: v: v != null && v != [ ]) p) cfg.plugins;
         shell = mkDefault cfg.shell;
         stateDir = mkDefault cfg.stateDir;
         branding.name = mkDefault cfg.branding.name;

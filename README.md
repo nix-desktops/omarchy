@@ -160,6 +160,75 @@ The state the menu edits lives in your config (`stateDir`): `apps.json`
 default), `branding.json` (the name, when it isn't Omarchy). Commit it with
 the rest of your config.
 
+## Shell plugins
+
+Omarchy's shell plugins work as [upstream's manual](https://github.com/basecamp/omarchy/blob/quattro/manual/32-shell-plugins.md)
+describes: `omarchy plugin add <git-url> --enable`, `update`, `remove`,
+`enable`, `disable`, `clone`, `list`, and Setup > Plugins in the menu. They
+live in `~/.config/omarchy/plugins`, which is yours.
+
+Most community plugins ([omarchyplugins.com](https://omarchyplugins.com))
+are written for Arch. The NixOS module meets them halfway, both options on
+by default:
+
+| Option (NixOS) | |
+| --- | --- |
+| `omarchy.envfs.enable` | NixOS's envfs on `/usr/bin` and `/bin`: `/usr/bin/python3`, `#!/usr/bin/bash`, `/usr/bin/omarchy-*` resolve to the command on the calling process's PATH (for plugins: the shell's, which has your profile). A command that isn't on that PATH stays missing. |
+| `omarchy.usrShare.enable` | `/usr/share/omarchy` (Omarchy's files, where Arch has them) and `/usr/share/zoneinfo` |
+
+and the shell can import `Qt5Compat.GraphicalEffects` and `QtMultimedia`
+(`omarchy.qmlModules` in Home Manager).
+
+`omarchy plugin doctor [id|path]` reads a plugin's files (it runs nothing)
+and says what it needs here: the commands it runs that aren't on the shell's
+PATH and the nixpkgs package for each (from nixpkgs' command-not-found
+database, offline), Python modules, QML modules the shell lacks, and what
+won't work at all (pacman/AUR, native builds):
+
+```
+$ omarchy plugin doctor io.github.sanjuanjor.typist
+Typist (io.github.sanjuanjor.typist)   /home/me/.config/omarchy/plugins/io.github.sanjuanjor.typist
+  needs packages
+  Commands:
+    setxkbmap                missing → nixpkgs: setxkbmap   typist_worker.py:45
+  Add to your NixOS configuration (then rebuild):
+    omarchy.plugins."io.github.sanjuanjor.typist".packages = with pkgs; [ setxkbmap ];
+```
+
+`omarchy.plugins` (NixOS or Home Manager) declares plugins, pinned, or only
+the packages one added by hand needs:
+
+```nix
+omarchy.plugins = {
+  "io.github.rookepoole.moon-arc" = {
+    url = "https://github.com/rookepoole/omarchy-moon-arc";
+    rev = "5efc8d104debdeb922dbc2760aecbc75c565f311";
+    hash = "sha256-zYPStMRggvih82neDJ1sTeJ2l1nHUzTu7dMUUM8zmBg=";
+    section = "right";          # where on the bar, the first time
+  };
+  # src = a flake input (flake = false), fetchFromGitHub, a path, …
+  # Added with `omarchy plugin add`: just what it runs.
+  "io.github.sanjuanjor.typist".packages = [ pkgs.setxkbmap ];
+};
+```
+
+A declared plugin is checked with upstream's validator at build time and
+linked into `~/.config/omarchy/plugins/<id>` (`omarchy plugin update`
+leaves it alone). It's switched on the way upstream records it in
+`~/.config/omarchy/shell.json`, once: switch it off or move it from the
+shell and that sticks; drop it from the config and it's switched off.
+`lib.mkPlugin { pkgs; id; src; }` builds one for other uses, and
+`lib.catalog.plugins` lists a few that work here.
+
+What doesn't work, and can't from here: plugins that install or query
+packages with pacman/yay/paru, ones that need a native build (C++/Rust
+helpers, compiled QML plugins) or `npm install`, commands nixpkgs doesn't
+have, and fixed paths other than the above (`/usr/lib/…`, `/usr/share/icons/…`,
+`/opt/…`). A process that clears its environment and runs a bare
+`/usr/bin/<cmd>` still finds it (envfs falls back to the process's original
+PATH); one started without the command on its PATH at all does not.
+`scripts/plugin-survey` tests the whole directory; see its README.
+
 ## Channels
 
 The branch you follow is the Omarchy release channel, like Omarchy's own:

@@ -13,6 +13,9 @@
 #   - `plugins`: shell plugins packaged separately upstream (the elsewhen
 #     world clock), installed into share/omarchy/shell/plugins as Omarchy's
 #     own packages do.
+#   - `declaredPlugins`: the user's third-party plugins (omarchy.plugins),
+#     switched on in the default shell.json (they're installed into
+#     ~/.config/omarchy/plugins, where the shell looks for them).
 #   - the default bar layout drops the pacman update checker (Arch only).
 #   - desktop files are looked up in the NixOS profiles too, not just
 #     ~/.local, ~/.nix-profile and /usr; app launchers find apps on PATH
@@ -23,7 +26,8 @@
 #     the terminal preference list) go to $out/share, which the profile
 #     puts on XDG_DATA_DIRS.
 { lib, stdenvNoCC, writeText, src, bash, python3, perl, jq, replacements ? [ ], plugins ? [ ], branding ? null
-, menu ? null, terminal ? "foot.desktop", browser ? "chromium.desktop", droppedApps ? [ ] }:
+, menu ? null, terminal ? "foot.desktop", browser ? "chromium.desktop", droppedApps ? [ ]
+, declaredPlugins ? [ ] }:
 
 stdenvNoCC.mkDerivation {
   pname = "omarchy";
@@ -46,6 +50,15 @@ stdenvNoCC.mkDerivation {
     # The pacman update checker out of the default bar layout.
     jq '.bar.layout |= with_entries(.value |= map(select(.id != "omarchy.system-update")))' \
       config/omarchy/shell.json >$share/config/omarchy/shell.json
+
+    ${lib.optionalString (declaredPlugins != [ ]) ''
+      # The user's declared plugins (omarchy.plugins) switched on in the
+      # default layout, which the shell uses until the user has a
+      # shell.json of their own (then activation adds them there once).
+      python3 ${./plugins-shell-json.py} defaults ${writeText "omarchy-declared-plugins.json" (builtins.toJSON
+        (map (p: { inherit (p) id section; manifest = "${p.dir}/manifest.json"; }) declaredPlugins))} \
+        $share/config/omarchy/shell.json
+    ''}
 
     for plugin in ${lib.escapeShellArgs plugins}; do
       cp -r "$plugin"/share/omarchy/shell/plugins/. $share/shell/plugins/

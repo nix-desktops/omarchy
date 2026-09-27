@@ -138,13 +138,20 @@ let
     (command "omarchy-install-docker-dbs"     [ pkgs.jq pkgs.coreutils ])
     (command "omarchy-install-font"           [ pkgs.fontconfig ])
     (command "omarchy-remove-launcher-entry"  [ pkgs.jq pkgs.gnugrep pkgs.coreutils pkgs.desktop-file-utils ])
+    # New: what a shell plugin needs on NixOS (modules/home/plugins.nix).
+    pluginDoctor
   ];
+  pluginDoctor = pkgs.callPackage ../../pkgs/plugin-doctor.nix {
+    inherit quickshell;
+    qmlModules = cfg.qmlModules ++ [ tools.owe-lockfeed ];
+  };
   omarchy = pkgs.callPackage ../../pkgs/omarchy.nix {
     src = inputs.omarchy;
     inherit replacements;
     menu = menuOverrides;
     inherit (cfg) terminal browser droppedApps;
     plugins = [ tools.elsewhen ];
+    declaredPlugins = cfg.internal.declaredPlugins;
     branding = if cfg.branding.name == "Omarchy" then null
       else pkgs.callPackage ../../pkgs/branding.nix { inherit (cfg.branding) name; };
   };
@@ -193,7 +200,13 @@ let
     unstable.hyprpicker unstable.hyprsunset unstable.hyprland-preview-share-picker
     # Omarchy's own: screenshots, the screensaver, video wallpapers.
     omasnap tools.ttfx tools.owe
-    gum jq fzf curl socat perl python3 bc file
+    gum jq fzf curl socat perl bc file
+    # Low priority: a python3 with modules (a plugin's `packages`, the
+    # host's own) takes its place instead of colliding.
+    (lib.lowPrio python3)
+    # `omarchy plugin add/update/clone` (git, ripgrep); the CLI setup
+    # usually installs them too.
+    (lib.lowPrio git) (lib.lowPrio ripgrep)
     wl-clipboard wtype inotify-tools libnotify desktop-file-utils
     udiskie                     # automount, launched by Omarchy's autostart
     satty grim slurp tesseract zbar
@@ -226,6 +239,7 @@ in
     (import ./apps.nix { inherit inputs; })
     (import ./catalog.nix { inherit inputs; })
     (import ./shell.nix { inherit inputs; })
+    (import ./plugins.nix { inherit inputs; })
     ./seed.nix
   ];
 
@@ -638,10 +652,14 @@ in
           # Theme backgrounds are mostly WebP; nixpkgs' Quickshell only
           # ships Qt's built-in image formats (the wrapper prepends its own
           # plugin paths, so this one is kept).
-          "QT_PLUGIN_PATH=${unstable.kdePackages.qtimageformats}/lib/qt-6/plugins"
           # OWE's lock-screen feed (Owe.LockFeed), which the lock screen
           # loads when it's there.
-          "QML_IMPORT_PATH=${tools.owe-lockfeed}/lib/qt6/qml"
+          "QML_IMPORT_PATH=${lib.concatStringsSep ":" ([ "${tools.owe-lockfeed}/lib/qt6/qml" ]
+            ++ map (m: "${m}/lib/qt-6/qml") cfg.qmlModules)}"
+          # Their plugins (QtMultimedia's FFmpeg backend), after the image
+          # formats.
+          "QT_PLUGIN_PATH=${lib.concatStringsSep ":" ([ "${unstable.kdePackages.qtimageformats}/lib/qt-6/plugins" ]
+            ++ map (m: "${m}/lib/qt-6/plugins") cfg.qmlModules)}"
           "PATH=${servicePath}"
         ];
         Restart = "on-failure";

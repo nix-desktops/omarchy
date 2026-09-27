@@ -14,6 +14,12 @@
 #             agents and tools on
 #   host      the host template (examples/host) evaluates and its system
 #             builds, with a stand-in hardware config
+#   plugin-doctor  `omarchy plugin doctor` builds (its command database)
+#   catalog-plugins  lib.catalog's shell plugins fetch and validate
+#   plugins-shell-json  declared plugins switched on/off in shell.json
+#   plugins   a NixOS VM with shell plugins: `omarchy plugin add` of local
+#             git repos (python3 via envfs), a declared plugin, the doctor,
+#             /usr/share/omarchy, removal
 #   vm        a NixOS VM set up like the host template (the NixOS module
 #             wiring the desktop for its user): login screen, PAM services,
 #             the shell's unit and the commands in place for the user;
@@ -73,6 +79,26 @@ let
     exec setpriv --reuid=1000 --regid=100 --init-groups env -i "''${envs[@]}" bash -lc "$1"
   '';
 
+  # Community plugins from omarchyplugins.com, pinned, for the plugins test:
+  # lib.catalog's (fetched as omarchy.plugins fetches a url) and two more.
+  fromCatalog = id: pkgs.fetchgit { inherit (self.lib.catalog.plugins.${id}) url rev hash; };
+  plugin = owner: repo: rev: hash: pkgs.fetchFromGitHub { inherit owner repo rev hash; };
+  fixtures = {
+    # A bar widget whose helper runs as /usr/bin/python3 with PATH=/usr/bin
+    # and a cleared environment.
+    myjournal = fromCatalog "io.github.mohuddle.myjournal";
+    # A plain bar widget (moon phase).
+    moon-arc = fromCatalog "io.github.rookepoole.moon-arc";
+    # A bar widget running a `#!/usr/bin/python3` script: declared.
+    logi-battery = fromCatalog "io.github.proxy1967.logi-battery";
+    # For the doctor: a command nixpkgs has (setxkbmap) missing, and one
+    # that tells you to `yay -S` its missing command.
+    typist = plugin "sanjuanjor" "typist" "2d2e0e3d8f46c7aef304c47cffcaf7ef4a5a0d3a"
+      "sha256-O06R/X4AH1R0ObZFiQkvJXOIdYuJ3BTqffYjR/nfQ0k=";
+    kefctl = plugin "douglas" "omarchy-kefctl" "d7bea30ee9aa7327828936ac4324318994c685c8"
+      "sha256-kccZ00Jdmt/HlROHc4dlVFvZX9ouTWU7l0YkS6ub1z0=";
+  };
+
   catalog = self.lib.catalog;
   catalogBinds = pkgs.writeText "catalog-binds.json" (builtins.toJSON
     (pkgs.lib.concatMap (e: e.binds)
@@ -84,6 +110,8 @@ in
   home = home.activationPackage;
 
   themes = home.config.omarchy.themes;
+
+  plugin-doctor = self.packages.${system}.plugin-doctor;
 
   catalog = pkgs.runCommand "omarchy-catalog-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
     upstream=$(jq -c '[.[] | select(.layer != "core") | .keys] | sort' ${self.packages.${system}.keybinds}/keybinds.json)
@@ -113,6 +141,174 @@ in
       }
     ];
   }).config.system.build.toplevel;
+
+  # lib.catalog's plugins fetch and pass upstream's validator (lib.mkPlugin).
+  catalog-plugins = pkgs.linkFarm "omarchy-catalog-plugins" (pkgs.lib.mapAttrsToList (id: p: {
+    name = id;
+    path = self.lib.mkPlugin { inherit pkgs id; src = pkgs.fetchgit { inherit (p) url rev hash; }; };
+  }) catalog.plugins);
+
+  # The declared-plugin bookkeeping in shell.json (pkgs/plugins-shell-json.py).
+  plugins-shell-json = pkgs.runCommand "omarchy-plugins-shell-json" { nativeBuildInputs = [ pkgs.python3 pkgs.jq ]; } ''
+    py="python3 ${../pkgs/plugins-shell-json.py}"
+    mkdir w && cd w
+    echo '{"kinds":["bar-widget"],"barWidget":{"defaultSection":"right"}}' >widget.json
+    echo '{"kinds":["service"]}' >service.json
+    echo '[{"id":"a.widget","section":null,"manifest":"widget.json"},{"id":"a.service","section":null,"manifest":"service.json"}]' >both.json
+    echo '[{"id":"a.widget","section":null,"manifest":"widget.json"}]' >widget-only.json
+    # Defaults: the widget after the tray (the shell's anchor), the service in plugins[].
+    cp ${inputs.omarchy}/config/omarchy/shell.json defaults.json
+    chmod u+w defaults.json
+    $py defaults both.json defaults.json
+    jq -e '.bar.layout.right[0].id == "omarchy.tray" and .bar.layout.right[1].id == "a.widget"' defaults.json
+    jq -e '.plugins == [{"id":"a.service"}]' defaults.json
+    # No user file: nothing written but the state.
+    $py activate both.json user.json state.json
+    test ! -e user.json && jq -e '.enabled == ["a.service","a.widget"]' state.json
+    # The user's file (the shell wrote one), where they switched the widget off:
+    # it stays off.
+    jq 'del(.bar.layout.right[1])' defaults.json >user.json
+    $py activate both.json user.json state.json
+    jq -e '[.bar.layout[][] | .id] | index("a.widget") == null' user.json
+    # A plugin declared later is switched on once; one no longer declared, off.
+    rm state.json
+    jq '.plugins = []' defaults.json >user.json
+    echo '{"enabled":["a.widget"]}' >state.json
+    $py activate both.json user.json state.json
+    jq -e '.plugins == [{"id":"a.service"}]' user.json
+    $py activate widget-only.json user.json state.json
+    jq -e '.plugins == []' user.json
+    jq -e '.enabled == ["a.widget"]' state.json
+    touch $out
+  '';
+
+  # Shell plugins: upstream's `omarchy plugin` commands on NixOS (a local
+  # git repo added and enabled, removed), a declared plugin (omarchy.plugins),
+  # /usr/bin/<cmd> through envfs, /usr/share/omarchy, and the doctor.
+  plugins = pkgs.testers.runNixOSTest {
+    name = "omarchy-plugins";
+    nodes.machine = { pkgs, ... }: {
+      imports = [
+        self.nixosModules.default
+        inputs.home-manager.nixosModules.home-manager
+      ];
+      omarchy = {
+        enable = true;
+        stateDir = ./state;
+        users = [ "omarchy" ];
+        configDir = "/home/omarchy/nixos";
+        login.autoLogin = "omarchy";
+        # Declared at the NixOS level, passed to the user's Home Manager.
+        plugins."io.github.proxy1967.logi-battery".src = fixtures.logi-battery;
+      };
+      users.users.omarchy.isNormalUser = true;
+      home-manager.users.omarchy.home.stateVersion = "26.05";
+      environment.systemPackages = [ pkgs.jq ];
+      environment.etc = pkgs.lib.mapAttrs' (name: src:
+        pkgs.lib.nameValuePair "plugin-fixtures/${name}" { source = src; }) fixtures;
+      virtualisation.memorySize = 4096;
+    };
+    testScript = ''
+      import json
+      start_all()
+      home = "/home/omarchy"
+      user = "su - omarchy -c"
+      env = "XDG_RUNTIME_DIR=/run/user/1000 HYPRLAND_INSTANCE_SIGNATURE=$(ls /run/user/1000/hypr | head -1)"
+      machine.wait_for_unit("home-manager-omarchy.service")
+      machine.wait_until_succeeds("systemctl --user -M omarchy@ is-active omarchy-shell.service", timeout=180)
+      machine.wait_until_succeeds(f"{user} '{env} hyprctl version'", timeout=120)
+      # The VM draws in software: reloading plugins can keep the shell busy
+      # past omarchy-shell's 2 s IPC timeout.
+      session = env + " WAYLAND_DISPLAY=$(cd /run/user/1000 && ls wayland-? | head -1) OMARCHY_SHELL_IPC_TIMEOUT=20s"
+      def run(cmd):
+          return machine.succeed(f"{user} '{session} {cmd}'")
+      def plugins():
+          return {p["id"]: p for p in json.loads(run("omarchy plugin list --json"))}
+      def bar():
+          return {w["id"]: w for w in json.loads(run("omarchy-shell shell debugBarGeometry"))}
+      def qml_errors(pid):
+          log = machine.succeed("journalctl --no-pager -o cat _SYSTEMD_USER_UNIT=omarchy-shell.service")
+          return [l for l in log.splitlines() if pid in l and any(w in l for w in
+                  ("rror", "failed", "not installed", "not a type", "is not defined", "Cannot", "Unable"))]
+      machine.wait_until_succeeds(f"{user} '{session} omarchy-shell shell listPlugins' | grep -q omarchy.clock", timeout=60)
+
+      # ---- Paths plugins written for Arch expect --------------------------
+      # envfs: /usr/bin/<cmd> from the caller's PATH, also for a process
+      # that clears its environment to PATH=/usr/bin (as My Journal's helper
+      # does: envfs falls back to the process's own original PATH).
+      print(machine.succeed("findmnt /usr/bin; findmnt /bin"))
+      machine.succeed("findmnt -n /usr/bin | grep -q envfs")
+      run("/usr/bin/python3 -c \"print(42)\" | grep -qx 42")
+      run("env -i HOME=/home/omarchy PATH=/usr/bin LC_ALL=C /usr/bin/python3 -I -S -c \"print(42)\" | grep -qx 42")
+      run("/usr/bin/omarchy-cmd-present jq")
+      machine.succeed("test -x /usr/bin/env && /bin/sh -c true && /usr/bin/bash -c true")
+      # What isn't on the caller's PATH stays missing.
+      machine.fail("env -i PATH=/nowhere /usr/bin/python3 -c 1")
+      # Omarchy's files at Arch's OMARCHY_PATH.
+      machine.succeed("test -f /usr/share/omarchy/shell/shell.qml && test -f /usr/share/omarchy/config/omarchy/shell.json")
+      machine.succeed("test -e /usr/share/zoneinfo/Europe/Amsterdam")
+
+      # ---- A declared plugin (omarchy.plugins, from the NixOS module) ----
+      declared = "io.github.proxy1967.logi-battery"
+      link = f"{home}/.config/omarchy/plugins/{declared}"
+      machine.succeed(f"test -L {link} && readlink -f {link} | grep -q '^/nix/store/'")
+      machine.wait_until_succeeds(f"{user} '{session} omarchy plugin list --json' | jq -e 'any(.[]; .id == \"{declared}\" and .enabled)'", timeout=60)
+      machine.wait_until_succeeds(f"{user} '{session} omarchy-shell shell debugBarGeometry' | jq -e 'any(.[]; .id == \"{declared}\")'", timeout=60)
+      # Its reader is a #!/usr/bin/python3 script: it runs (no mouse here,
+      # so it reports none) instead of failing on the interpreter.
+      out = machine.succeed(f"{user} '{session} {link}/logi-battery 2>&1 || true'")
+      print(out)
+      assert "bad interpreter" not in out and "No such file" not in out, out
+      # upstream's update leaves it alone: it's no git checkout.
+      run(f"omarchy plugin update {declared} --yes 2>&1 | grep -q \"not a git checkout\"")
+
+      # ---- `omarchy plugin add` from a local git repo ---------------------
+      for name in ["myjournal", "moon-arc"]:
+          run(f"cp -rL --no-preserve=mode /etc/plugin-fixtures/{name} /tmp/{name} && cd /tmp/{name} && git init -q && git add -A && git -c user.name=t -c user.email=t@t commit -qm import")
+      out = run("omarchy plugin add /tmp/myjournal --yes --enable 2>&1")
+      assert "Added io.github.mohuddle.myjournal" in out, out
+      run("omarchy plugin add /tmp/moon-arc --yes --enable 2>&1")
+      for pid in ["io.github.mohuddle.myjournal", "io.github.rookepoole.moon-arc"]:
+          machine.succeed(f"test -d {home}/.config/omarchy/plugins/{pid}/.git")
+          machine.wait_until_succeeds(f"{user} '{session} omarchy plugin list --json' | jq -e 'any(.[]; .id == \"{pid}\" and .enabled)'", timeout=60)
+          machine.wait_until_succeeds(f"{user} '{session} omarchy-shell shell debugBarGeometry' | jq -e 'any(.[]; .id == \"{pid}\" and .itemWidth > 0)'", timeout=60)
+      # Enabling wrote the user's shell.json, which kept the declared plugin.
+      machine.succeed(f"jq -e '[.bar.layout[][] | .id] | index(\"{declared}\") != null' {home}/.config/omarchy/shell.json")
+      # My Journal's store helper, run exactly as its Service does.
+      helper = f"{home}/.config/omarchy/plugins/io.github.mohuddle.myjournal/bin/journal-store.py"
+      run(f"env -i HOME={home} PATH=/usr/bin LC_ALL=C /usr/bin/python3 -I -S {helper} read")
+      machine.sleep(5)
+      for pid in [declared, "io.github.mohuddle.myjournal", "io.github.rookepoole.moon-arc"]:
+          errors = qml_errors(pid)
+          assert not errors, f"{pid}: " + "\n".join(errors)
+      machine.succeed("systemctl --user -M omarchy@ is-active omarchy-shell.service")
+      machine.screenshot("plugins-bar")
+
+      # ---- The doctor -----------------------------------------------------
+      out = run("omarchy plugin doctor /etc/plugin-fixtures/typist 2>&1")
+      assert "setxkbmap" in out and "nixpkgs: setxkbmap" in out, out
+      assert 'omarchy.plugins."io.github.sanjuanjor.typist".packages = with pkgs; [ setxkbmap ];' in out, out
+      out = run("omarchy plugin doctor /etc/plugin-fixtures/kefctl 2>&1")
+      assert "Arch-only" in out and "yay" in out and "kefctl" in out, out
+      report = json.loads(run("omarchy plugin doctor io.github.mohuddle.myjournal --json"))
+      assert report["verdict"] == "ok", report
+      assert any(c["name"] == "python3" and c["status"] == "ok" for c in report["commands"]), report["commands"]
+      report = json.loads(run(f"omarchy plugin doctor {declared} --json"))
+      assert report["declared"] and report["verdict"] == "ok", report
+
+      # ---- Switched off by the user, kept off by the next activation ------
+      run(f"omarchy plugin disable {declared}")
+      machine.wait_until_succeeds(f"{user} '{session} omarchy plugin list --json' | jq -e 'any(.[]; .id == \"{declared}\" and (.enabled | not))'", timeout=30)
+      machine.succeed("systemctl restart home-manager-omarchy.service")
+      machine.succeed(f"jq -e '[.bar.layout[][] | .id] | index(\"{declared}\") == null' {home}/.config/omarchy/shell.json")
+
+      # ---- Removal --------------------------------------------------------
+      run("omarchy plugin remove io.github.rookepoole.moon-arc --yes")
+      machine.fail(f"test -e {home}/.config/omarchy/plugins/io.github.rookepoole.moon-arc")
+      machine.wait_until_succeeds(f"{user} '{session} omarchy plugin list --json' | jq -e 'all(.[]; .id != \"io.github.rookepoole.moon-arc\")'", timeout=30)
+      machine.succeed("systemctl --user -M omarchy@ is-active omarchy-shell.service")
+    '';
+  };
 
   vm = pkgs.testers.runNixOSTest {
     name = "omarchy";

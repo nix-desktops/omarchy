@@ -87,6 +87,14 @@ modules/nixos/default.nix system side: Hyprland 0.56 (unstable) + uwsm, services
                         themes), docker databases, and the desktop for `omarchy.users` via HM
 examples/host/          `templates.host`: a whole NixOS machine (nix flake new -t …#host)
 bin/*.sh                NixOS versions of Omarchy commands (installed over upstream's)
+modules/home/plugins.nix  shell plugins: omarchy.plugins (declared, pinned; packages), omarchy.qmlModules,
+                        declared plugins linked into ~/.config/omarchy/plugins and switched on once
+modules/plugin-options.nix  the omarchy.plugins.<id> type (NixOS and Home Manager)
+pkgs/plugin.nix         lib.mkPlugin: a plugin's files, checked with upstream's validator
+pkgs/plugins-shell-json.py  declared plugins into shell.json (package defaults; once in the user's)
+pkgs/plugin-doctor.nix, bin/omarchy-plugin-doctor.py  `omarchy plugin doctor` (packages.plugin-doctor)
+pkgs/programs-db.nix    nixpkgs' programs.sqlite (command → package), from the 26.05 channel
+scripts/plugin-survey/  the community-plugin survey (survey.py, vm.nix, runtime.py, README.md)
 lib/theme.nix           theme registry: 22 built-in + pinned community themes; colors.toml /
                         alacritty.toml → palette, ANSI, Stylix base16
 lib/menu.nix            NixOS layer over Omarchy's menu (see "Gotchas")
@@ -402,3 +410,95 @@ nix flake check                          # all of the above
 
 Upstream source for reading: `nix eval --raw .#packages.x86_64-linux.omarchy`
 (`share/omarchy` inside it), or `~/.local/share/omarchy` on the author's machine.
+
+## Shell plugins (2026-09-27)
+
+Upstream's third-party shell plugins (`omarchy plugin add/update/remove/
+enable/disable/clone/list/validate`, Setup > Plugins; manual
+32-shell-plugins.md) work on this flake as on Arch, plus:
+
+- **What upstream's commands needed:** git and ripgrep on PATH (runtime
+  deps, low priority), gum, jq, find, inotifywait were there. The plugin
+  directory `~/.config/omarchy/plugins` is the user's (the shell creates
+  it); nothing manages it except declared plugins' links.
+- **Arch paths** (NixOS module, both default on): `omarchy.envfs.enable`
+  (`services.envfs`: /usr/bin and /bin resolve from the calling process's
+  PATH; the fallback dir has env, sh and bash) and `omarchy.usrShare.enable`
+  (tmpfiles links /usr/share/omarchy → the first desktop user's package,
+  /usr/share/zoneinfo → /etc/zoneinfo). envfs and the shell: Quickshell's
+  children exec with the omarchy-shell unit's PATH (the user profile,
+  wrappers, system), so /usr/bin/python3 and /usr/bin/omarchy-* work. A
+  process that clears its environment (`PATH=/usr/bin`, My Journal does)
+  still resolves: envfs tries the execve's PATH, then the process's
+  original environment. A command on no PATH stays missing; `ls /usr/bin`
+  lists nothing. VM-tested (checks.plugins).
+- **QML modules:** plugins import Qt5Compat.GraphicalEffects (12 files in
+  the 300-plugin sample) and QtMultimedia (16); `omarchy.qmlModules` (HM,
+  default qt5compat + qtmultimedia from nixos-unstable, Quickshell's Qt)
+  puts them on the shell's QML_IMPORT_PATH/QT_PLUGIN_PATH. QtWebEngine and
+  Qt.labs.lottieqt (one plugin each) aren't there.
+- **python3** in the runtime deps is low priority, so a
+  `python3.withPackages` from a plugin's packages (or the host) wins.
+- **`omarchy plugin doctor [id|path ...] [--json]`**
+  (`pkgs/plugin-doctor.nix`, installed over the package's commands with its
+  `# omarchy:` metadata so `omarchy plugin doctor` routes): static analysis
+  of a plugin's files (QML/JS command arrays, `sh -c` strings, its shell
+  and Python scripts reachable from the UI, shebangs, /usr/bin paths;
+  dev/install scripts nothing references are skipped), against the shell
+  unit's PATH. Names packages from nixpkgs' programs.sqlite (the channel's
+  command-not-found DB, fetched from the pinned 26.05 channel release:
+  same release as the flake, top-level attributes, 16 MB; chosen over
+  nix-index-database, which is ~10x larger, follows unstable and answers
+  with sub-attributes), NixOS options for commands that come with a service
+  or driver (fprintd, nvidia-smi, tailscale, …), python3Packages for
+  imports (a list of attribute names built in), QML modules the shell
+  can't load, fixed paths, pacman/AUR use (Arch-only) and native builds.
+  Without the DB it says so and still lists what's missing.
+- **Declared plugins:** `omarchy.plugins.<id>` (HM, and NixOS passing to
+  every user): `src` or `url`+`rev`+`hash` (fetchgit), `enable`,
+  `section`, `packages`. Built with lib.mkPlugin (copied as cloned, .git
+  dropped, validated, manifest id must match), linked at
+  `~/.config/omarchy/plugins/<id>` (HM xdg.configFile; a real dir there
+  from `omarchy plugin add` makes HM stop with "in the way"). Switched on
+  through upstream's shell.json rules: into the package's default
+  shell.json (used while the user has none), and by activation once into
+  an existing user shell.json (state in
+  `~/.local/state/omarchy/plugins.json`); the user switching it off or
+  moving it sticks; undeclared → switched off. The shell restarts when the
+  set changes (the package changes). An entry with only `packages` serves
+  an imperatively added plugin (what the doctor prints).
+- **lib.catalog.plugins** ("picked"): Moon Arc, My Journal, Mouse battery,
+  pinned, `attrs` = packages, `url`/`rev`/`hash`/`kind` for the
+  Configurator (not changed there yet: it'd show a "Shell plugins" group
+  and write `omarchy.plugins.<id>`). checks.catalog-plugins builds them.
+- **Tests:** checks.plugins (VM: declared plugin from the NixOS module,
+  `omarchy plugin add --yes --enable` of local git repos, bar geometry,
+  no QML errors naming them, #!/usr/bin/python3 and PATH=/usr/bin
+  python through envfs, /usr/share/omarchy, the doctor on setxkbmap- and
+  yay-using plugins, a user's disable surviving re-activation, removal),
+  checks.plugins-shell-json, checks.plugin-doctor, checks.catalog-plugins.
+  The VM draws in software: reloading plugins can take longer than
+  omarchy-shell's 2 s IPC timeout, so the tests set
+  OMARCHY_SHELL_IPC_TIMEOUT=20s.
+- **Survey** (scripts/plugin-survey, README there): clones the catalog's
+  installable plugins (3,668), validates, runs the doctor, then adds each
+  in logged-in VMs in batches with the doctor's packages and records
+  load/errors/crash/screenshot into results.jsonl. First run
+  (2026-09-27): 20 random from the 300 sample: 17 work as is, 3 Arch-only
+  (two menu forks carrying pacman calls load fine; system-pulse's widget
+  fails: C helper + missing omarchy-system-monitor); 7 picked for packages:
+  6 load with what the doctor named (setxkbmap, poppler-utils+libarchive,
+  glib, pillow, services.fprintd), kefctl is Arch-only (its kefctl isn't
+  in nixpkgs). ~10 s per plugin, ~2.5 min per 10-plugin boot.
+- **Unsolved:** pacman/yay/paru plugins (update checkers, package menus);
+  native builds (C/C++/Rust helpers, compiled QML plugins, `npm install`,
+  prebuilt binaries); commands nixpkgs lacks (kefctl, voxtype-audio-bridge,
+  herdr from nixpkgs, …); fixed paths beyond /usr/bin, /bin,
+  /usr/share/omarchy and zoneinfo (/usr/lib/qt6/bin, /usr/share/icons,
+  /usr/share/fonts/TTF/…, /opt); processes started with no PATH that has
+  the command; plugins whose install scripts do setup (systemd units,
+  udev rules, sudo) that `omarchy plugin add` never runs anyway; the
+  doctor is heuristic (dynamic command strings aren't seen; a few English
+  words in shell text can look like commands and are only reported when a
+  package of that exact name exists).
+
