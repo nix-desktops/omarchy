@@ -23,6 +23,12 @@
 let
   inherit (pkgs.stdenv.hostPlatform) system;
 
+  # Upstream's screenshot command hands off to omasnap on its development
+  # branch; the v4.0 releases (the stable channel) run a grim script.
+  omasnapScreenshots = pkgs.lib.hasInfix "omasnap" (
+    builtins.readFile "${inputs.omarchy}/bin/omarchy-capture-screenshot"
+  );
+
   exampleHome = {
     home.username = "omarchy";
     home.homeDirectory = "/home/omarchy";
@@ -250,23 +256,27 @@ in
       # the keybinds run them. The folders Omarchy saves into exist.
       machine.succeed(f"test -d {home}/Pictures && test -d {home}/Videos && test -d {home}/Downloads")
       session = env + " WAYLAND_DISPLAY=$(cd /run/user/1000 && ls wayland-? | head -1)"
-      shots = f"{home}/Pictures/Screenshots"
-      # Capture > Screenshot: omasnap copies, previews and (auto-save)
-      # stores the capture; fullscreen needs no selection.
+      # Upstream's screenshot command: omasnap on its development branch,
+      # a grim script in the v4.0 releases the stable channel follows.
+      omasnap = ${if omasnapScreenshots then "True" else "False"}
+      shots = f"{home}/Pictures/Screenshots" if omasnap else f"{home}/Pictures"
+      # Capture > Screenshot: copies to the clipboard and saves (omasnap:
+      # with auto-save); fullscreen needs no selection.
       machine.succeed(f"{user} '{session} timeout 60 omarchy-capture-screenshot fullscreen'")
       machine.wait_until_succeeds(f"ls {shots}/screenshot-*.png", timeout=30)
       machine.succeed(f"{user} '{session} wl-paste --list-types' | grep -qx image/png")
-      # PRINT, then Ctrl+A (the whole monitor) in Omasnap's picker: the
-      # keybind path, saved the same way.
-      count = int(machine.succeed(f"ls {shots} | wc -l").strip())
-      machine.send_key("print")
-      machine.sleep(3)
-      machine.send_key("ctrl-a")
-      machine.wait_until_succeeds(f"test $(ls {shots} | wc -l) -gt {count}", timeout=30)
-      # Quick output still saves only when asked: `save`.
+      if omasnap:
+          # PRINT, then Ctrl+A (the whole monitor) in Omasnap's picker: the
+          # keybind path, saved the same way.
+          count = int(machine.succeed(f"ls {shots} | wc -l").strip())
+          machine.send_key("print")
+          machine.sleep(3)
+          machine.send_key("ctrl-a")
+          machine.wait_until_succeeds(f"test $(ls {shots} | wc -l) -gt {count}", timeout=30)
+      # Quick output saves when asked: `save`.
       count = int(machine.succeed(f"ls {shots} | wc -l").strip())
       machine.succeed(f"{user} '{session} timeout 60 omarchy-capture-screenshot fullscreen save'")
-      machine.succeed(f"test $(ls {shots} | wc -l) -gt {count}")
+      machine.wait_until_succeeds(f"test $(ls {shots} | wc -l) -gt {count}", timeout=30)
       machine.succeed(f"{user} 'file {shots}/screenshot-*.png' | grep -q 'PNG image data'")
 
       # Screen recording: Omarchy finds the running recorder by its process
