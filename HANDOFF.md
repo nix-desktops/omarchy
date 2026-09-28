@@ -490,6 +490,37 @@ enable/disable/clone/list/validate`, Setup > Plugins; manual
   6 load with what the doctor named (setxkbmap, poppler-utils+libarchive,
   glib, pillow, services.fprintd), kefctl is Arch-only (its kefctl isn't
   in nixpkgs). ~10 s per plugin, ~2.5 min per 10-plugin boot.
+- **Survey harness fixes (2026-09-28)**, after reviewers found the
+  harness at fault for about a quarter of "fails to load": the plugin is
+  found by its manifest id (7 catalog ids differ); journal lines are matched
+  for error words without the plugin's ids and file URLs and never at
+  DEBUG (ids with "mirror" hit "rror"); FileView's missing state files and
+  images that exist a moment later are `warnings`, not errors; the VM's
+  user stays awake (Omarchy's stay-awake state file via
+  `xdg.stateFile`, no screensaver at 150 s or lock at 300 s mid-batch);
+  8 GB VM disk and each plugin's copies deleted; replacement bars and
+  lock-screen/background-layer plugins run last in their batch with the
+  shell restarted after each. Proof batch: 30 plugins, 442 s, never locked,
+  widgets after two replacement bars got slots. Rerun of the 281 plugins
+  that were fails-to-load or bar widgets run after a replacement bar:
+  111 of 220 fails-to-load now load (76 as is, 35 with packages), 109
+  still fail, every one on QML errors naming it (no missing slots, no
+  locks); the others kept their category. Survey now (3,618): 2,421 work
+  as is, 608 with packages, 263 Arch-only, 202 native build, 109 fail to
+  load, 15 clone failed.
+- **Upstream bug (confirmed): removing a replacement bar leaves no bar
+  API.** shell.qml's `pluginBarLoader` has `onActiveChanged: if (!active)
+  shell.bar = null`; switching back to the default bar loads
+  `defaultBarLoader` (whose `onLoaded` sets `shell.bar`) before the plugin
+  loader's handler runs, so `shell.bar` ends null (the default loader's
+  own handler guards with `shell.activeBarId !== shell.defaultBarId`; the
+  plugin one doesn't). The default bar is loaded, but
+  `debugBarGeometry` is `[]` and everything bound to `shell.bar` (the
+  plugin bar API's barSize, position, font) falls back until the shell
+  restarts. Seen in the survey VM: 0 slots right after removing
+  charlieras262.floating-bar and grechman.dynamic-bar, every widget back
+  after a restart. A reviewer found the same code in upstream's newest
+  `quattro`. Fix upstream: the same guard on the plugin loader.
 - **Unsolved:** pacman/yay/paru plugins (update checkers, package menus);
   native builds (C/C++/Rust helpers, compiled QML plugins, `npm install`,
   prebuilt binaries); commands nixpkgs lacks (kefctl, voxtype-audio-bridge,

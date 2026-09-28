@@ -261,14 +261,17 @@ def category(s, rt):
 def record(s, rt, cat):
     d = s.get("doctor") or {}
     return {
-        "id": s["id"], "repo": s.get("repo"), "commit": s.get("commit"), "category": cat,
+        "id": s["id"], "manifestId": s.get("manifestId"), "repo": s.get("repo"), "commit": s.get("commit"),
+        "category": cat,
         "static": s.get("static"), "staticError": s.get("error"),
         "runtime": None if rt is None else (
             "crash" if rt.get("crashed") or rt.get("vmDied") else
             "not-added" if (rt.get("add") or {}).get("status") not in (0, None) else
             "errors" if rt.get("errors") else
             "loaded" if rt.get("listed") else "not-listed"),
-        "errors": (rt or {}).get("errors", []), "packages": d.get("packages") or [],
+        "errors": (rt or {}).get("errors", []),
+        "warnings": (rt or {}).get("warnings") if isinstance((rt or {}).get("warnings"), list) else [],
+        "packages": d.get("packages") or [],
         "pythonPackages": d.get("pythonPackages") or [], "options": d.get("options") or [],
         "missing": d.get("missing") or [],
         "nixos": d.get("nixos"), "archOnly": sorted({a["what"] for a in d.get("archOnly") or []}),
@@ -276,7 +279,9 @@ def record(s, rt, cat):
         "screenshot": (rt or {}).get("screenshotPath"), "bar": (rt or {}).get("bar"), "barQuery": (rt or {}).get("barQuery"),
         "kinds": s.get("kinds"), "addOutput": ((rt or {}).get("add") or {}).get("output", "")[-600:],
         "crashLog": (rt or {}).get("crashLog"), "harnessError": (rt or {}).get("harnessError"),
-        "seconds": (rt or {}).get("seconds"),
+        "seconds": (rt or {}).get("seconds"), "batch": (rt or {}).get("batch"),
+        "restarted": (rt or {}).get("restarted"), "barAfterRemove": (rt or {}).get("barAfterRemove"),
+        "lockedBefore": (rt or {}).get("lockedBefore"), "screenshotKind": (rt or {}).get("screenshotKind"),
     }
 
 
@@ -286,13 +291,44 @@ def append_result(state, rec):
             f.write(json.dumps(rec) + "\n")
 
 
+def session_changing(s):
+    """A lock screen (WlSessionLock) or something on the desktop's background
+    layer: it changes the session for the plugins after it, so it runs last
+    in its batch and the shell restarts after it."""
+    try:
+        with open(os.path.join(s.get("path") or "", "manifest.json")) as f:
+            m = (json.load(f).get("omarchy") or {}).get("clonedFrom")
+    except (OSError, ValueError, AttributeError):
+        m = None
+    if m in ("omarchy.lock", "omarchy.background"):
+        return True
+    for root, dirs, files in os.walk(s.get("path") or "/nonexistent"):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for f in files:
+            if f.endswith(".qml"):
+                try:
+                    with open(os.path.join(root, f), errors="ignore") as fh:
+                        t = fh.read()
+                except OSError:
+                    continue
+                if "WlSessionLock" in t or re.search(r"WlrLayer\.(Background|Bottom)\b", t):
+                    return True
+    return False
+
+
 def run_batch(n, items, a, state):
     bdir = os.path.join(state, "batches", f"{time.strftime('%Y%m%d-%H%M%S')}-{n:04d}")
     out = os.path.join(bdir, "out")
     os.makedirs(out, exist_ok=True)
     pkgs = sorted({p for s in items for p in (s.get("doctor") or {}).get("packages") or []})
     py = sorted({p for s in items for p in (s.get("doctor") or {}).get("pythonPackages") or []})
-    batch = {"plugins": [{"id": s["id"], "slug": s["slug"], "path": s["path"], "kinds": s.get("kinds")} for s in items],
+    session = {s["id"]: session_changing(s) for s in items}
+    # Replacement bars and session-changing plugins last (the shell restarts
+    # after each of them anyway).
+    if not a.keep_order:
+        items = sorted(items, key=lambda s: (session[s["id"]], "bar" in (s.get("kinds") or [])))
+    batch = {"plugins": [{"id": s["id"], "manifestId": s.get("manifestId"), "slug": s["slug"], "path": s["path"],
+                          "kinds": s.get("kinds"), "session": session[s["id"]]} for s in items],
              "timeout": a.plugin_timeout, "settle": a.settle}
     with open(os.path.join(bdir, "batch.json"), "w") as f:
         json.dump(batch, f, indent=1)
@@ -330,9 +366,11 @@ def run_batch(n, items, a, state):
                     break
             else:
                 rc = proc.returncode
-        if rc != "boot-timeout":
+        # A VM that never came up (a timeout, or QEMU failing to start with
+        # several VMs starting at once) gets one more try.
+        if rc != "boot-timeout" and (rc == 0 or os.path.exists(os.path.join(out, "batch.jsonl"))):
             break
-        log(f"batch {n}: the VM didn't come up; trying once more")
+        log(f"batch {n}: the VM didn't come up ({rc}); trying once more")
     done = time.time()
     shutil.rmtree(vmtmp, ignore_errors=True)
     results = {}
@@ -359,6 +397,7 @@ def run_batch(n, items, a, state):
             continue  # never reached; a rerun retries it
         if rt.get("screenshot"):
             rt["screenshotPath"] = os.path.join(out, rt["screenshot"])
+        rt["batch"] = os.path.basename(bdir)
         append_result(state, record(s, rt, category(s, rt)))
         finished += 1
     with lock:
@@ -439,6 +478,9 @@ def main():
     ap.add_argument("--batch", type=int, default=50, help="plugins per VM boot (default 50)")
     ap.add_argument("--plugin-timeout", type=int, default=60)
     ap.add_argument("--settle", type=int, default=5, help="seconds to wait after enabling")
+    ap.add_argument("--keep-order", action="store_true",
+                    help="run each batch in the given order (replacement bars and session-changing plugins "
+                         "aren't moved to the end; to test the harness)")
     ap.add_argument("--static-only", action="store_true")
     ap.add_argument("--redo", action="store_true", help="repeat plugins already in results.jsonl")
     ap.add_argument("--summary", action="store_true", help="only print the summary of results.jsonl")

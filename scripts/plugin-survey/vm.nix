@@ -52,6 +52,10 @@ let
       home-manager.users.omarchy = {
         home.stateVersion = "26.05";
         home.packages = lib.optional (extra != [ ]) (lib.hiPrio extraEnv);
+        # Stay awake (what `omarchy toggle idle stay-awake` writes): no
+        # screensaver at 150 s and no lock at 300 s in the middle of a batch,
+        # which would blank the screenshots and hang grim.
+        xdg.stateFile."omarchy/indicators/stay-awake".text = "";
       };
       environment.systemPackages = [ pkgs.jq ];
       # No test VLAN: one VM, and parallel drivers' VDE switches don't
@@ -59,6 +63,9 @@ let
       virtualisation.vlans = lib.mkForce [ ];
       virtualisation.memorySize = 4096;
       virtualisation.cores = 2;
+      # Room for the plugins' copies, clones and what they download (the
+      # default 1 GB filled up); the image is sparse.
+      virtualisation.diskSize = 8192;
       virtualisation.resolution = { x = 1920; y = 1080; };
       # The network, when the driver runs outside the sandbox: QEMU's user
       # networking on the first interface, which NetworkManager brings up.

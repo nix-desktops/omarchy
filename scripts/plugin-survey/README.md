@@ -39,15 +39,38 @@ screenshots), `results.jsonl`, `timings.jsonl` and `summary.md`.
    outside the Nix sandbox, so the VM has the network. `runtime.py`, for
    each plugin in turn: copies the clone in, `omarchy plugin add <repo>
    --yes --enable` as the user, waits `--settle` seconds, then records
-   whether it's listed and enabled, its slot on the bar (size), errors in
-   the shell's journal that name it, whether the shell died, and a
-   screenshot (the widget cut out of the bar, or the panel/overlay
+   whether it's listed and enabled, its slot on the bar (size), errors and
+   warnings in the shell's journal that name it, whether the shell died,
+   and a screenshot (the widget cut out of the bar, or the panel/overlay
    summoned, or the screen for a replacement bar); then `omarchy plugin
-   remove` (restarting the shell if it crashed).
+   remove`, and deletes its copies (`/tmp/survey/<slug>`, the plugin
+   directory, remove's backups). The plugin is looked up by its manifest id
+   (what `plugin add` installs it as; 7 catalog entries have another id),
+   and both ids are recorded.
+   - **The shell restarts** after a plugin that crashed it, after a
+     replacement bar (`bar` kind: upstream's shell.qml leaves `shell.bar`
+     null once one is removed, see HANDOFF.md, so every later widget got no
+     slot), and after a session-changing plugin (a lock screen,
+     `WlSessionLock`, anything on the background/bottom layer, or a clone
+     of `omarchy.lock`/`omarchy.background`). Both kinds run last in their
+     batch (`--keep-order` keeps the given order, to test the harness).
+   - **No idle:** the VM's user has Omarchy's stay-awake state
+     (`xdg.stateFile."omarchy/indicators/stay-awake"`, what `omarchy toggle
+     idle stay-awake` writes), so the screensaver (150 s) and the lock
+     (300 s) never start mid-batch; `lockedBefore` records the lock state
+     before each plugin anyway. The VM has an 8 GB disk (sparse).
+   - **Errors vs warnings:** only journal lines that aren't DEBUG, with the
+     plugin's ids, slug and file URLs taken out, are matched for error
+     words (an id like `mirror-x` contains "rror"). First-run noise goes to
+     `warnings`, not `errors`: Quickshell's FileView "Read of … failed: File
+     does not exist" for a file under the home, /tmp or /run/user (state and
+     cache files a plugin writes later), and "Cannot open: <image>" when the
+     image exists by the time the journal is read. Warnings don't make a
+     plugin fail.
 3. **Results.** `results.jsonl` gets one line per plugin as its batch
    finishes: `id`, `repo`, `commit`, `category`, `static` (the doctor's
-   verdict), `runtime` (`loaded` / `errors` / `not-listed` / `not-added` /
-   `crash`), `errors`, `packages` and `pythonPackages` (the doctor's),
+   verdict), `manifestId`, `runtime` (`loaded` / `errors` / `not-listed` / `not-added` /
+   `crash`), `errors`, `warnings`, `batch`, `restarted`, `packages` and `pythonPackages` (the doctor's),
    `missing`, `archOnly`, `native`, `screenshot`, `bar`, … A rerun skips
    plugins already there (`--redo` to repeat); a plugin whose batch never
    reached it is retried, and one that took the VM down is recorded as a
