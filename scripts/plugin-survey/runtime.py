@@ -96,9 +96,17 @@ for p in batch["plugins"]:
         entry = next((x for x in listed if x.get("id") == pid), None)
         rec["listed"] = entry is not None
         rec["enabled"] = bool(entry and entry.get("enabled"))
-        geometry = ipc_json("omarchy-shell shell debugBarGeometry") or []
-        slot = next((g for g in geometry if g.get("id") == pid), None)
+        # The shell can be slow to answer on a busy host, and a widget can
+        # take a moment to get its slot: ask again before calling it absent.
+        slot, geometry = None, None
+        for attempt in range(4):
+            geometry = ipc_json("omarchy-shell shell debugBarGeometry")
+            slot = next((g for g in geometry or [] if g.get("id") == pid), None)
+            if slot:
+                break
+            machine.sleep(3)
         rec["bar"] = slot
+        rec["barQuery"] = "ok" if geometry is not None else "failed"
 
         # The picture: the widget on the bar, or the panel/overlay/menu
         # opened.

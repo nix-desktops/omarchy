@@ -63,6 +63,7 @@ NATIVE_BUILD_CMDS = re.compile(r"(?<![\w-])(cargo\s+build|cmake\s|make\s+(-j|ins
 PREFERRED = {
     "python3": "python3", "python": "python3", "pip": "python3Packages.pip", "pip3": "python3Packages.pip",
     "node": "nodejs", "npm": "nodejs", "npx": "nodejs", "hyprctl": "hyprland", "Hyprland": "hyprland",
+    "pkg-config": "pkg-config", "sqlite3": "sqlite",
     "notify-send": "libnotify", "nmcli": "networkmanager", "gdbus": "glib", "busctl": "systemd",
     "systemctl": "systemd", "journalctl": "systemd", "loginctl": "systemd", "timedatectl": "systemd",
     "pactl": "pulseaudio", "wpctl": "wireplumber", "pw-cli": "pipewire", "pw-dump": "pipewire",
@@ -320,9 +321,25 @@ def qml_commands(text):
     text = re.sub(r"/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)), text, flags=re.S)
     text = re.sub(r"(?m)^[ \t]*//.*$", lambda m: " " * len(m.group(0)), text)
     out = []
+    # The plugin's own functions named like a command runner
+    # (`function exec(args, cb) { db(args, cb) }`): an array passed to one
+    # is a command only when the function hands its argument straight to a
+    # process (`command = args`, `execDetached(args)`); otherwise it's the
+    # plugin's own subcommands (`exec(["start", task])`).
+    wrappers = set()
+    for d in re.finditer(r"\bfunction\s+(\w+)\s*\(\s*(\w*)|\b(\w+)\s*[:=]\s*(?:function\s*)?\(\s*(\w*)[^)]*\)\s*(?:=>)?\s*\{", text):
+        name, param = d.group(1) or d.group(3), d.group(2) or d.group(4)
+        body = text[d.end():d.end() + 600]
+        direct = param and re.search(r"\bcommand\s*[:=]\s*" + re.escape(param) + r"\b|\b(?:exec\w*|startDetached|spawn\w*)\s*\(\s*" + re.escape(param) + r"\b", body)
+        if not direct:
+            wrappers.add(name)
     for m in ARRAY_START.finditer(text):
         before = text[max(0, m.start() - 60):m.start()]
-        if not CONTEXT.search(before):
+        ctx = CONTEXT.search(before)
+        if not ctx:
+            continue
+        called = re.match(r"(\w+)\s*\(", ctx.group(1))
+        if called and called.group(1) in wrappers:
             continue
         g = m.groups()
         a0 = first(g[0:3])
@@ -472,7 +489,8 @@ class Env:
             return None
 
         def score(p):
-            bad = any(x in p for x in ("Minimal", "bootstrap", "FreeThreading", "unwrapped", "-tod", "_bin", "-bin", "Full"))
+            bad = any(x in p for x in ("Minimal", "bootstrap", "FreeThreading", "unwrapped", "-tod", "_bin", "-bin", "Full",
+                                        "busybox", "toybox"))
             return (p != cmd, bad, p.count("."), not p.startswith(cmd), len(p), p)
         return sorted(set(rows), key=score)[:3]
 

@@ -163,8 +163,9 @@ def clone(p, repos):
                            env=env, capture_output=True, text=True, timeout=180)
         if r.returncode == 0:
             break
-        # With a token, "not found" means gone or private.
-        throttled = re.search(r"rate limit|429" if token else r"not found|rate limit|429|Authentication failed",
+        # With a token, "not found" means gone or private; 401 and 403 are
+        # GitHub throttling a burst of clones.
+        throttled = re.search(r"rate limit|429|HTTP 40[13]" if token else r"not found|rate limit|429|Authentication failed",
                               r.stderr, re.I)
         if not throttled or attempt == 4:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -245,6 +246,9 @@ def category(s, rt):
     if "bar-widget" in kinds and "bar" not in kinds and not (rt.get("bar") or {}).get("itemWidth"):
         # A widget that isn't drawn: loaded if nothing failed and it chose
         # to hide (itemVisible false), else not.
+        if rt.get("bar") is None and rt.get("barQuery") == "failed" and loaded:
+            # The shell never answered: that says nothing about the plugin.
+            return "harness-error"
         loaded = loaded and rt.get("bar") is not None
     if not loaded:
         return "fails-to-load"
@@ -269,7 +273,7 @@ def record(s, rt, cat):
         "missing": d.get("missing") or [],
         "nixos": d.get("nixos"), "archOnly": sorted({a["what"] for a in d.get("archOnly") or []}),
         "native": sorted({n["what"] for n in d.get("native") or []})[:5],
-        "screenshot": (rt or {}).get("screenshotPath"), "bar": (rt or {}).get("bar"),
+        "screenshot": (rt or {}).get("screenshotPath"), "bar": (rt or {}).get("bar"), "barQuery": (rt or {}).get("barQuery"),
         "kinds": s.get("kinds"), "addOutput": ((rt or {}).get("add") or {}).get("output", "")[-600:],
         "crashLog": (rt or {}).get("crashLog"), "harnessError": (rt or {}).get("harnessError"),
         "seconds": (rt or {}).get("seconds"),
