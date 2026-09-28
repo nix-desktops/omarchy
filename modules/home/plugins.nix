@@ -29,15 +29,44 @@ let
 
   mkPlugin = pkgs.callPackage ../../pkgs/plugin.nix { omarchySrc = inputs.omarchy; };
 
-  enabled = lib.filterAttrs (_: p: p.enable) cfg.plugins;
-  sourced = lib.filterAttrs (_: p: p.src != null || p.url != null) enabled;
+  # The registry of packaged plugins (pkgs/plugins), built against this
+  # desktop's Hyprland.
+  registry = import ../../pkgs/plugins { inherit lib; };
+  registryEntries = registry.entries {
+    inherit pkgs omarchyUnstable;
+    hyprland = cfg.hyprland.package;
+    omarchySrc = inputs.omarchy;
+  };
+
+  # A declared plugin with its registry entry folded in: the entry's
+  # helpers, links, packages, … first, the declaration's added on top.
+  fromRegistry = id: p: p.registry && p.src == null && p.url == null && lib.elem id registry.ids;
+  effective = id: p:
+    if !(fromRegistry id p) then p // { entry = null; } else
+    let e = registryEntries.${id}; in p // {
+      entry = e;
+      helpers = e.helpers // p.helpers;
+      home = e.home // p.home;
+      packages = e.packages ++ p.packages;
+      patches = e.patches ++ p.patches;
+      postPatch = e.postPatch + p.postPatch;
+      hyprlandPlugins = e.hyprlandPlugins ++ p.hyprlandPlugins;
+      hyprlandConfig = e.hyprlandConfig + p.hyprlandConfig;
+      qmlModules = e.qmlModules ++ p.qmlModules;
+      section = if p.section != null then p.section else e.section;
+    };
+
+  enabled = lib.mapAttrs effective (lib.filterAttrs (_: p: p.enable) cfg.plugins);
+  sourced = lib.filterAttrs (_: p: p.src != null || p.url != null || p.entry != null) enabled;
 
   pluginPackage = id: p: mkPlugin {
     inherit id;
-    src = if p.src != null then p.src else pkgs.fetchgit {
-      inherit (p) url rev;
-      hash = if p.hash != null then p.hash else lib.fakeHash;
-    };
+    inherit (p) patches postPatch helpers;
+    src = if p.entry != null then p.entry.src
+      else if p.src != null then p.src else pkgs.fetchgit {
+        inherit (p) url rev;
+        hash = if p.hash != null then p.hash else lib.fakeHash;
+      };
   };
   built = lib.mapAttrs pluginPackage sourced;
 
@@ -84,16 +113,57 @@ in
       description = "Declared plugins with a source: id, section and the built plugin (dir), for the package.";
     };
 
+    internal.pluginQmlModules = mkOption {
+      internal = true;
+      type = types.listOf types.package;
+      default = [ ];
+      description = "QML modules declared plugins add (their `qmlModules`, omarchy.qtWebEngine).";
+    };
+
     qmlModules = mkOption {
       type = types.listOf types.package;
-      default = with omarchyUnstable.kdePackages; [ qt5compat qtmultimedia ];
-      defaultText = lib.literalExpression "with nixpkgs-unstable.kdePackages; [ qt5compat qtmultimedia ]";
+      default = with omarchyUnstable.kdePackages; [ qt5compat qtmultimedia qtwebsockets qtpositioning qtlottie qtquick3d ];
+      defaultText = lib.literalExpression
+        "with nixpkgs-unstable.kdePackages; [ qt5compat qtmultimedia qtwebsockets qtpositioning qtlottie qtquick3d ]";
       description = ''
         Qt QML modules the shell can import beyond Quickshell's own
-        (QtQuick, Quickshell.*): plugins use Qt5Compat.GraphicalEffects and
-        QtMultimedia, which Omarchy's Arch packages bring along. They must
-        come from the Qt the shell runs on (nixos-unstable's, like
-        Quickshell).
+        (QtQuick, Qt.labs.*, Quickshell.*): community plugins import
+        Qt5Compat.GraphicalEffects, QtMultimedia, QtWebSockets,
+        QtPositioning, Qt.labs.lottieqt and QtQuick3D, which Omarchy's
+        Arch packages bring along or Arch users install. They must come
+        from the Qt the shell runs on (nixos-unstable's, like Quickshell).
+        A declared plugin's own `qmlModules` are added to these.
+      '';
+    };
+
+    qtWebEngine.enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        QtWebEngine (Chromium; ~600 MB) on the shell's QML import path,
+        for the few plugins that import QtWebEngine.
+      '';
+    };
+
+    hyprland.package = mkOption {
+      type = types.package;
+      default = omarchyUnstable.hyprland;
+      defaultText = lib.literalExpression "nixpkgs-unstable.hyprland (the NixOS module passes programs.hyprland.package)";
+      description = ''
+        The Hyprland the desktop runs, which compositor plugins (a declared
+        plugin's `hyprlandPlugins`) are built against. The NixOS module
+        sets it to `programs.hyprland.package`.
+      '';
+    };
+
+    hyprland.plugins = mkOption {
+      type = types.listOf (types.either types.package types.str);
+      default = [ ];
+      description = ''
+        Hyprland compositor plugins the generated hyprland.lua loads
+        (`hl.plugin.load`): a package with lib/lib<pname>.so (what
+        mkHyprlandPlugin builds) or a path to the .so. Declared shell
+        plugins' `hyprlandPlugins` are added here.
       '';
     };
   };
@@ -102,9 +172,23 @@ in
     assertions = lib.mapAttrsToList (id: p: {
       assertion = p.url == null || (p.src == null && p.rev != null && p.hash != null);
       message = "omarchy.plugins.\"${id}\": `url` needs `rev` and `hash` (and no `src`).";
+    }) enabled ++ lib.mapAttrsToList (id: p: {
+      assertion = sourced ? ${id} || (p.helpers == { } && p.patches == [ ] && p.postPatch == "");
+      message = "omarchy.plugins.\"${id}\": `helpers`, `patches` and `postPatch` need the plugin declared with a source (`src`, `url`, or a registry entry).";
     }) enabled;
 
     home.packages = lib.concatMap (p: p.packages) (lib.attrValues enabled);
+
+    # Paths plugins hardcode in the home: ~/.local/bin/x, a venv.
+    home.file = lib.mkMerge (lib.mapAttrsToList (_: p:
+      lib.mapAttrs (_: target: { source = target; }) p.home) enabled);
+
+    omarchy.internal.pluginQmlModules = lib.concatMap (p: p.qmlModules) (lib.attrValues enabled)
+      ++ lib.optional cfg.qtWebEngine.enable omarchyUnstable.kdePackages.qtwebengine;
+
+    omarchy.hyprland.plugins = lib.concatMap (p: p.hyprlandPlugins) (lib.attrValues enabled);
+    omarchy.hyprland.extraConfig = lib.concatStrings (lib.mapAttrsToList (id: p:
+      lib.optionalString (p.hyprlandConfig != "") "-- omarchy.plugins.\"${id}\"\n${p.hyprlandConfig}\n") enabled);
 
     xdg.configFile = lib.mapAttrs' (id: pkg:
       lib.nameValuePair "omarchy/plugins/${id}" { source = pkg; }) built;

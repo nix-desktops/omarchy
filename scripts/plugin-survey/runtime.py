@@ -8,6 +8,9 @@
 #   shell crashed; then `omarchy plugin remove` it, delete its copies, and
 #   restart the shell when it died, or when the plugin was a replacement bar
 #   or changes the session (lock screen, desktop background layer).
+# A plugin from the flake's registry (p["registry"]) is declared in the VM
+# (vm.nix): it's there and switched on from boot, so it isn't added or
+# removed, and its journal lines are read from the shell's start.
 # The plugin is found by its manifest id (what `plugin add` installs it as),
 # which a few catalog entries don't match.
 # One JSON line per plugin goes to $SURVEY_OUT/runtime.jsonl, and a "start"
@@ -136,13 +139,17 @@ for p in batch["plugins"]:
         rec["lockedBefore"] = (as_user("omarchy-shell lock isLocked", 30)[1].strip() or None)
         before_pid, _ = shell_state()
         since = machine.succeed("date +%s.%N").strip()
-        src = f"/tmp/survey/{slug}"
-        machine.succeed(f"rm -rf {src} && mkdir -p /tmp/survey")
-        machine.copy_from_host(p["path"], src)
-        machine.succeed(f"chown -R omarchy:users {src}")
-        status, output = as_user(f"timeout {timeout} omarchy plugin add {src} --yes --enable 2>&1")
-        rec["add"] = {"status": status, "output": output[-1500:]}
-        machine.sleep(settle)
+        if p.get("registry"):
+            since = "0"
+            rec["add"] = {"status": 0, "output": "declared: omarchy.plugins.<id>.enable (pkgs/plugins)"}
+        else:
+            src = f"/tmp/survey/{slug}"
+            machine.succeed(f"rm -rf {src} && mkdir -p /tmp/survey")
+            machine.copy_from_host(p["path"], src)
+            machine.succeed(f"chown -R omarchy:users {src}")
+            status, output = as_user(f"timeout {timeout} omarchy plugin add {src} --yes --enable 2>&1")
+            rec["add"] = {"status": status, "output": output[-1500:]}
+            machine.sleep(settle)
 
         listed = ipc_json("omarchy plugin list --json") or []
         entry = next((x for x in listed if x.get("id") == mid), None)
@@ -213,11 +220,14 @@ for p in batch["plugins"]:
     # get no slot; a lock screen or background layer can outlive its plugin.
     try:
         q = shlex.quote(mid)
-        if as_user(f"timeout {timeout} omarchy plugin remove {q} --yes 2>&1")[0] != 0:
+        if p.get("registry"):
+            pass  # declared: stays for the whole batch
+        elif as_user(f"timeout {timeout} omarchy plugin remove {q} --yes 2>&1")[0] != 0:
             as_user(f"omarchy-shell shell setPluginEnabled {q} false", 30)
             as_user("omarchy-shell shell rescanPlugins", 30)
         plugins = f"{home}/.config/omarchy/plugins"
-        machine.execute(f"rm -rf /tmp/survey/{shlex.quote(slug)} {plugins}/{q} {plugins}/.{q}.bak.* "
+        mine_dir = "" if p.get("registry") else f"{plugins}/{q} {plugins}/.{q}.bak.* "
+        machine.execute(f"rm -rf /tmp/survey/{shlex.quote(slug)} {mine_dir}"
                         f"{plugins}/.add.tmp.* /tmp/shot.png")
         _, active = shell_state()
         if "bar" in kinds:

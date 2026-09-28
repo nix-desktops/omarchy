@@ -8,9 +8,14 @@
 #     --argstr flake "$PWD" --argstr packages '["cava"]' --argstr python '["requests"]'
 #   SURVEY_BATCH=batch.json SURVEY_OUT=out result/bin/nixos-test-driver -o out
 #
+# `registry` (a JSON list of ids) declares plugins from the flake's
+# registry (pkgs/plugins): `omarchy.plugins.<id>.enable = true`, installed
+# with their helpers at build time instead of `omarchy plugin add`. nix-ld
+# is on (omarchy.nixLd, the NixOS module's default), as on a user's machine.
+#
 # `available` lists every command on the shell's PATH in the VM without
 # extra packages, for the doctor's static pass (--available).
-{ flake ? toString ../.., packages ? "[]", python ? "[]", system ? builtins.currentSystem }:
+{ flake ? toString ../.., packages ? "[]", python ? "[]", registry ? "[]", system ? builtins.currentSystem }:
 let
   self = builtins.getFlake flake;
   inherit (self) inputs;
@@ -46,6 +51,7 @@ let
         users = [ "omarchy" ];
         configDir = "/home/omarchy/nixos";
         login.autoLogin = "omarchy";
+        plugins = lib.genAttrs (builtins.fromJSON registry) (_: { enable = true; });
       };
       users.users.omarchy = { isNormalUser = true; extraGroups = [ "wheel" ]; };
       security.sudo.wheelNeedsPassword = false;

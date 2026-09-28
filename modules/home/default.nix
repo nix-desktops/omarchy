@@ -30,6 +30,9 @@ let
   # default/themed/ (shell.toml, kitty.conf, neovim.lua, btop.theme, …)
   # that the theme doesn't ship itself.
   theme = import ../../lib/theme.nix { inherit (inputs) omarchy; inherit (cfg) stateDir; };
+  # QML modules for the shell: omarchy.qmlModules and what declared plugins
+  # add (plugins.nix).
+  qmlModules = cfg.qmlModules ++ cfg.internal.pluginQmlModules;
   # Rendering needs only upstream's renderer; the NixOS command layer
   # (which carries the themes tree in its environment) would be circular.
   omarchyUpstream = pkgs.callPackage ../../pkgs/omarchy.nix { src = inputs.omarchy; };
@@ -143,7 +146,7 @@ let
   ];
   pluginDoctor = pkgs.callPackage ../../pkgs/plugin-doctor.nix {
     inherit quickshell;
-    qmlModules = cfg.qmlModules ++ [ tools.owe-lockfeed ];
+    qmlModules = qmlModules ++ [ tools.owe-lockfeed ];
   };
   omarchy = pkgs.callPackage ../../pkgs/omarchy.nix {
     src = inputs.omarchy;
@@ -207,6 +210,8 @@ let
     # `omarchy plugin add/update/clone` (git, ripgrep); the CLI setup
     # usually installs them too.
     (lib.lowPrio git) (lib.lowPrio ripgrep)
+    # In Omarchy's Arch base; plugins run them (#!/usr/bin/ruby, sqlite3).
+    (lib.lowPrio ruby) (lib.lowPrio sqlite)
     wl-clipboard wtype inotify-tools libnotify desktop-file-utils
     udiskie                     # automount, launched by Omarchy's autostart
     satty grim slurp tesseract zbar
@@ -655,11 +660,11 @@ in
           # OWE's lock-screen feed (Owe.LockFeed), which the lock screen
           # loads when it's there.
           "QML_IMPORT_PATH=${lib.concatStringsSep ":" ([ "${tools.owe-lockfeed}/lib/qt6/qml" ]
-            ++ map (m: "${m}/lib/qt-6/qml") cfg.qmlModules)}"
+            ++ map (m: "${m}/lib/qt-6/qml") qmlModules)}"
           # Their plugins (QtMultimedia's FFmpeg backend), after the image
           # formats.
           "QT_PLUGIN_PATH=${lib.concatStringsSep ":" ([ "${unstable.kdePackages.qtimageformats}/lib/qt-6/plugins" ]
-            ++ map (m: "${m}/lib/qt-6/plugins") cfg.qmlModules)}"
+            ++ map (m: "${m}/lib/qt-6/plugins") qmlModules)}"
           "PATH=${servicePath}"
         ];
         Restart = "on-failure";

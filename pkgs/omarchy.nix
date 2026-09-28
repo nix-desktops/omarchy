@@ -29,6 +29,19 @@
 , menu ? null, terminal ? "foot.desktop", browser ? "chromium.desktop", droppedApps ? [ ]
 , declaredPlugins ? [ ] }:
 
+let
+  pluginAddNote = writeText "omarchy-plugin-add-registry" ''
+    if jq -e --arg id "$id" 'index($id) != null' ${writeText "omarchy-plugin-registry.json"
+      (builtins.toJSON (import ./plugins { inherit lib; }).ids)} >/dev/null 2>&1; then
+      cat >&2 <<NOTE
+    $id is packaged for NixOS (nix-desktops/omarchy), with the programs it
+    builds or downloads itself. Added by hand it may lack them; declare it
+    in your NixOS configuration instead, then rebuild:
+      omarchy.plugins."$id".enable = true;
+    NOTE
+    fi
+  '';
+in
 stdenvNoCC.mkDerivation {
   pname = "omarchy";
   version = "${lib.removeSuffix "\n" (builtins.readFile (src + "/version"))}-${builtins.substring 0 7 (src.rev or "dirty")}";
@@ -133,6 +146,11 @@ stdenvNoCC.mkDerivation {
         '{~/.local,~/.nix-profile,/usr}/share/applications/' \
         '{~/.local,~/.nix-profile,/etc/profiles/per-user/$USER,/run/current-system/sw,/usr}/share/applications/'
     done
+
+    # `omarchy plugin add` of a plugin this flake packages (pkgs/plugins):
+    # added by hand it lacks the helpers Nix builds, so say how to declare it.
+    sed -i '/^id=$(jq -r .\.id. "$stage\/manifest.json")$/r ${pluginAddNote}' $share/bin/omarchy-plugin-add
+    grep -q 'omarchy.plugins."$id".enable' $share/bin/omarchy-plugin-add
 
     patchShebangs --host $share/bin $share/libexec $share/shell
 

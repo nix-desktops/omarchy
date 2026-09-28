@@ -90,7 +90,11 @@ bin/*.sh                NixOS versions of Omarchy commands (installed over upstr
 modules/home/plugins.nix  shell plugins: omarchy.plugins (declared, pinned; packages), omarchy.qmlModules,
                         declared plugins linked into ~/.config/omarchy/plugins and switched on once
 modules/plugin-options.nix  the omarchy.plugins.<id> type (NixOS and Home Manager)
-pkgs/plugin.nix         lib.mkPlugin: a plugin's files, checked with upstream's validator
+pkgs/plugin.nix         lib.mkPlugin: a plugin's files (+ patches, Nix-built helpers copied into its
+                        tree), checked with upstream's validator
+pkgs/plugins/           the registry of packaged community plugins, one <manifest id>/default.nix each
+                        (found by readDir; README.md there has the conventions); lib.plugins,
+                        legacyPackages.<system>.plugins.<id>, omarchy.plugins.<id>.enable
 pkgs/plugins-shell-json.py  declared plugins into shell.json (package defaults; once in the user's)
 pkgs/plugin-doctor.nix, bin/omarchy-plugin-doctor.py  `omarchy plugin doctor` (packages.plugin-doctor)
 pkgs/programs-db.nix    nixpkgs' programs.sqlite (command → package), from the 26.05 channel
@@ -521,8 +525,65 @@ enable/disable/clone/list/validate`, Setup > Plugins; manual
   charlieras262.floating-bar and grechman.dynamic-bar, every widget back
   after a restart. A reviewer found the same code in upstream's newest
   `quattro`. Fix upstream: the same guard on the plugin loader.
+- **Packaged plugins and helpers (2026-09-28).** Reviewers found the
+  blocker for native-build plugins is *where* helpers are looked for
+  (`<plugin>/bin/x`, `~/.local/bin/x`, a venv path, a download), not
+  building them. `omarchy.plugins.<id>` gained `helpers` (rel path →
+  file, copied into the plugin's store tree, dereferenced: the validator
+  refuses symlinks, and it validates after they're in), `home`
+  (`home.file` links: `~/.local/bin/x`, a venv dir = a
+  `python3.withPackages`), `patches`/`postPatch` (the plugin's files),
+  `hyprlandPlugins` + `hyprlandConfig` (loaded with `hl.plugin.load` at
+  the top of the generated hyprland.lua; `omarchy.hyprland.plugins`,
+  built against `omarchy.hyprland.package`, which the NixOS module sets
+  to `programs.hyprland.package`), `qmlModules`, and `registry`.
+  **The registry** (`pkgs/plugins/<id>/default.nix`, auto-discovered, so
+  parallel agents add entries without touching shared files): each entry
+  is `lib.callPackageWith` over 26.05 + `omarchyUnstable` (Quickshell's
+  Qt), `hyprland`, `mkHyprlandPlugin` (unstable's, `.override { hyprland
+  }`), returning `src` (fetchFromGitHub at the survey's commit) and the
+  attrs above. A declaration without `src`/`url` whose id is in the
+  registry uses the entry (its attrs first, the declaration's added);
+  `registry = false` keeps a hand-added plugin with only `packages`.
+  Exposed as `legacyPackages.<system>.plugins."<id>"` (`.home`: the
+  home links as a tree, `.entry`) and `lib.plugins` (data: url, rev,
+  hash, helper/home paths, package names; for the Configurator).
+  `omarchy plugin add` prints how to declare a registry plugin (a
+  sed-inserted note after it reads the id; ids baked into the package).
+  Examples: io.github.bitshiftxr.atrium (Rust `bin/atriumd`, its
+  `/usr/bin/secret-tool` patched to the store), io.github.lolu13.onote
+  (Rust at `~/.local/bin/onote-helper`, wl-clipboard paths patched, two
+  tests skipped that exec /usr/bin/cat), seigliva.ha-watch (python3 +
+  aiohttp at `~/.local/share/seigliva.ha-watch/venv`). checks.plugin-registry
+  declares every entry in one home and checks helpers, links, shell.json
+  and the plugin load line.
+- **Flake-wide fixes from the reviews (2026-09-28):** `omarchy.nixLd.enable`
+  (NixOS, default on: nix-ld was already on for Mason/mise; adds libevdev,
+  pipewire, libpulseaudio, dbus, curl, openssl, zlib, glib, libxkbcommon,
+  wayland, libstdc++ to nix-ld's defaults, for the 13 "ldd" plugins'
+  shipped/downloaded binaries); `omarchy.qmlModules` default + qtwebsockets,
+  qtpositioning, qtlottie, qtquick3d (~50 MB over qtdeclarative; Qt.labs.platform
+  is already in qtdeclarative), `omarchy.qtWebEngine.enable` (opt-in, ~600
+  MB); ruby and sqlite low-priority runtime deps; envfs' fallback dir has
+  coreutils and setsid (processes with a cleared environment:
+  agents-usage); `/usr/share/fonts` (buildEnv of fonts.packages + the first
+  user's home.path, share/fonts only: Arch's `noto/…` layout) and
+  `/usr/share/pixmaps/omarchy.png`; `omarchy.usrShare.voxtype` (default
+  off) links `/usr/share/voxtype/quickshell` from nixos-unstable voxtype's
+  **source** (1.0.1 has quickshell/voxtype-shared; no nixpkgs voxtype
+  installs it, 26.05's 0.7.2 source predates it).
+  Survey (2026-09-28, the 3 examples + 7 "ldd" + 7 "nixos" plugins):
+  atrium, onote, ha-watch load declared ("works packaged"; atrium's
+  "Process failed to start … bin/atriumd" is gone); newgrounds-radio and
+  bitfinex-ticker (QtWebSockets), omarchy-wallpapers (pixmaps) and omaflow
+  (ruby) now load; the ldd plugins load (their binaries aren't exercised by
+  the survey); changing-lines still fails: /usr/share/fonts is there but
+  NotoSansSymbols2 is in `noto-fonts`, which the desktop doesn't install
+  (the plugin's `packages = [ pkgs.noto-fonts ]` would do, the link includes
+  the user's fonts); agents-usage's remaining error is its own (assets/*.png
+  that are .svg in the repo).
 - **Unsolved:** pacman/yay/paru plugins (update checkers, package menus);
-  native builds (C/C++/Rust helpers, compiled QML plugins, `npm install`,
+  native builds not in the registry yet (C/C++/Rust helpers, compiled QML plugins, `npm install`,
   prebuilt binaries); commands nixpkgs lacks (kefctl, voxtype-audio-bridge,
   herdr from nixpkgs, …); fixed paths beyond /usr/bin, /bin,
   /usr/share/omarchy and zoneinfo (/usr/lib/qt6/bin, /usr/share/icons,

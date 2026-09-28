@@ -174,10 +174,14 @@ by default:
 | Option (NixOS) | |
 | --- | --- |
 | `omarchy.envfs.enable` | NixOS's envfs on `/usr/bin` and `/bin`: `/usr/bin/python3`, `#!/usr/bin/bash`, `/usr/bin/omarchy-*` resolve to the command on the calling process's PATH (for plugins: the shell's, which has your profile). A command that isn't on that PATH stays missing. |
-| `omarchy.usrShare.enable` | `/usr/share/omarchy` (Omarchy's files, where Arch has them) and `/usr/share/zoneinfo` |
+| `omarchy.usrShare.enable` | `/usr/share/omarchy` (Omarchy's files, where Arch has them), `/usr/share/zoneinfo`, `/usr/share/fonts` (the system's and your fonts, Arch's layout) and `/usr/share/pixmaps/omarchy.png` |
+| `omarchy.nixLd.enable` | nix-ld, with the libraries plugins' prebuilt helpers link (libevdev, PipeWire, PulseAudio, D-Bus, curl, OpenSSL, GLib, Wayland, …): binaries a plugin ships or downloads run |
 
-and the shell can import `Qt5Compat.GraphicalEffects` and `QtMultimedia`
-(`omarchy.qmlModules` in Home Manager).
+and the shell can import `Qt5Compat.GraphicalEffects`, `QtMultimedia`,
+`QtWebSockets`, `QtPositioning`, `Qt.labs.lottieqt` and `QtQuick3D`
+(`omarchy.qmlModules` in Home Manager; `omarchy.qtWebEngine.enable` adds
+QtWebEngine, ~600 MB). `omarchy.usrShare.voxtype` links voxtype's
+Quickshell module at `/usr/share/voxtype/quickshell` for voxtype plugins.
 
 `omarchy plugin doctor [id|path]` reads a plugin's files (it runs nothing)
 and says what it needs here: the commands it runs that aren't on the shell's
@@ -212,21 +216,40 @@ omarchy.plugins = {
 };
 ```
 
+Plugins that need something built (a Rust or Go helper from their own
+source, a Python env where they expect a venv, a Hyprland compositor
+plugin) are packaged in this flake's registry
+([pkgs/plugins](pkgs/plugins/README.md)); declare one by id and it comes
+with its helpers, links and packages:
+
+```nix
+omarchy.plugins."io.github.bitshiftxr.atrium".enable = true;
+```
+
+`omarchy plugin add` of one of those says so. A declaration can also carry
+its own `helpers` (Nix-built programs copied into the plugin's tree),
+`home` (links such as `~/.local/bin/x`), `patches`/`postPatch`,
+`hyprlandPlugins` and `qmlModules`; `registry = false` keeps a plugin
+added by hand.
+
 A declared plugin is checked with upstream's validator at build time and
 linked into `~/.config/omarchy/plugins/<id>` (`omarchy plugin update`
 leaves it alone). It's switched on the way upstream records it in
 `~/.config/omarchy/shell.json`, once: switch it off or move it from the
 shell and that sticks; drop it from the config and it's switched off.
-`lib.mkPlugin { pkgs; id; src; }` builds one for other uses, and
-`lib.catalog.plugins` lists a few that work here.
+`lib.mkPlugin { pkgs; id; src; helpers; patches; postPatch; }` builds one
+for other uses, `lib.plugins` lists the registry, and `lib.catalog.plugins`
+lists a few that work as is.
 
 What doesn't work, and can't from here: plugins that install or query
 packages with pacman/yay/paru, ones that need a native build (C++/Rust
-helpers, compiled QML plugins) or `npm install`, commands nixpkgs doesn't
-have, and fixed paths other than the above (`/usr/lib/…`, `/usr/share/icons/…`,
-`/opt/…`). A process that clears its environment and runs a bare
-`/usr/bin/<cmd>` still finds it (envfs falls back to the process's original
-PATH); one started without the command on its PATH at all does not.
+helpers, compiled QML plugins) or `npm install` and aren't in the registry
+yet, commands nixpkgs doesn't have, and fixed paths other than the above
+(`/usr/lib/…`, `/usr/share/icons/…`, `/opt/…`). A process that clears its
+environment and runs a bare `/usr/bin/<cmd>` still finds it (envfs falls
+back to the process's original PATH, and serves coreutils, setsid, bash
+and sh to processes with none); other commands started without them on
+the PATH do not.
 `scripts/plugin-survey` tests the whole directory; see its README.
 
 ## Channels

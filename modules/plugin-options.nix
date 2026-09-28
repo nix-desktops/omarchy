@@ -24,8 +24,10 @@ types.submodule ({ name, ... }: {
       description = ''
         The plugin's files: a git checkout with manifest.json at its root
         (fetchgit / fetchFromGitHub, a flake input with `flake = false`, a
-        path). Or give `url`, `rev` and `hash`. Without either, the entry
-        only adds `packages` for a plugin added with `omarchy plugin add`.
+        path). Or give `url`, `rev` and `hash`. Without either, a plugin in
+        the flake's registry (pkgs/plugins, `lib.plugins`) is installed from
+        its entry, helpers and all; any other entry only adds `packages` for
+        a plugin added with `omarchy plugin add`.
       '';
     };
 
@@ -71,6 +73,87 @@ types.submodule ({ name, ... }: {
         Programs the plugin runs, installed for the user so they're on the
         shell's PATH (`omarchy plugin doctor ${name}` names them).
       '';
+    };
+
+    registry = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Without `src`/`url`: install the plugin from the flake's registry of
+        packaged plugins (pkgs/plugins/<id>) when it's there. Its
+        `helpers`, `home`, `packages`, … come first; the ones set here are
+        added (and win per path). Set false to keep a plugin added with
+        `omarchy plugin add` and only give it `packages`.
+      '';
+    };
+
+    helpers = mkOption {
+      type = types.attrsOf (types.either types.path types.str);
+      default = { };
+      example = lib.literalExpression ''{ "bin/weatherd" = lib.getExe weatherd; }'';
+      description = ''
+        Nix-built programs placed inside the plugin's own tree, at paths
+        relative to its root, where the plugin looks for them (`bin/x`,
+        `target/release/x`). Copied, not linked (upstream's validator refuses
+        symlinks). Needs `src`/`url` or a registry entry: the plugin is a
+        store path built with them.
+      '';
+    };
+
+    home = mkOption {
+      type = types.attrsOf (types.either types.path types.str);
+      default = { };
+      example = lib.literalExpression ''
+        {
+          ".local/bin/weather-helper" = lib.getExe weather-helper;
+          ".local/share/acme.weather/venv" = pkgs.python3.withPackages (ps: [ ps.requests ]);
+        }
+      '';
+      description = ''
+        Links in the home (Home Manager `home.file`, relative to $HOME) for
+        paths a plugin hardcodes: `~/.local/bin/x`, a venv at
+        `~/.local/share/<name>/venv` (a python3.withPackages has
+        bin/python and bin/python3 like one).
+      '';
+    };
+
+    patches = mkOption {
+      type = types.listOf types.path;
+      default = [ ];
+      description = "Patches applied to the plugin's files before it's validated (declared plugins only).";
+    };
+
+    postPatch = mkOption {
+      type = types.lines;
+      default = "";
+      example = lib.literalExpression ''"substituteInPlace bin/run --replace-fail '$HOME/.venv/bin/python' ''${python}/bin/python"'';
+      description = ''
+        Shell run in the plugin's files after `patches` (substituteInPlace
+        …): a download step or a venv path replaced by a store path.
+      '';
+    };
+
+    hyprlandPlugins = mkOption {
+      type = types.listOf types.package;
+      default = [ ];
+      description = ''
+        Hyprland compositor plugins this plugin needs, loaded by the
+        generated hyprland.lua (`hl.plugin.load`). Build them with
+        `mkHyprlandPlugin` against the desktop's Hyprland (a registry
+        entry gets both as arguments).
+      '';
+    };
+
+    hyprlandConfig = mkOption {
+      type = types.lines;
+      default = "";
+      description = "Hyprland Lua for this plugin, added to the generated hyprland.lua after its compositor plugins load.";
+    };
+
+    qmlModules = mkOption {
+      type = types.listOf types.package;
+      default = [ ];
+      description = "QML modules (from Quickshell's Qt, nixos-unstable) added to the shell's import path for this plugin.";
     };
   };
 })

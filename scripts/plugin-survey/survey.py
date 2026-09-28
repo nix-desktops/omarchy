@@ -40,6 +40,7 @@ CATALOG_URL = "https://omarchyplugins.com/catalog.json"
 CATEGORIES = [
     ("works-as-is", "works as is"),
     ("works-with-packages", "works with packages (the doctor's)"),
+    ("works-packaged", "works packaged (pkgs/plugins, declared)"),
     ("arch-only", "Arch-only"),
     ("native-build", "native build"),
     ("fails-to-load", "fails to load"),
@@ -58,6 +59,15 @@ def log(*a):
 
 def slug_of(repo):
     return re.sub(r"[^A-Za-z0-9._-]+", "__", re.sub(r"^https?://(github\.com/)?", "", repo).rstrip("/").removesuffix(".git"))
+
+
+def registry_ids(flake):
+    """The plugins the flake packages (pkgs/plugins/<id>/default.nix)."""
+    d = os.path.join(flake, "pkgs", "plugins")
+    try:
+        return {i for i in os.listdir(d) if os.path.isfile(os.path.join(d, i, "default.nix"))}
+    except OSError:
+        return set()
 
 
 def nix_build(args, cwd=None):
@@ -237,6 +247,11 @@ def category(s, rt):
         return "crashes-shell"
     if rt.get("harnessError") and not rt.get("listed"):
         return "harness-error"
+    if s.get("registry"):
+        # Declared from the registry: what the doctor saw in the files
+        # (native builds, packages) is the entry's job; only loading counts.
+        loaded = rt.get("listed") and rt.get("enabled") is not False and not rt.get("errors")
+        return "works-packaged" if loaded else "fails-to-load"
     if s.get("static") == "arch-only":
         return "arch-only"
     if s.get("static") == "native-build":
@@ -262,7 +277,7 @@ def record(s, rt, cat):
     d = s.get("doctor") or {}
     return {
         "id": s["id"], "manifestId": s.get("manifestId"), "repo": s.get("repo"), "commit": s.get("commit"),
-        "category": cat,
+        "category": cat, "registry": bool(s.get("registry")),
         "static": s.get("static"), "staticError": s.get("error"),
         "runtime": None if rt is None else (
             "crash" if rt.get("crashed") or rt.get("vmDied") else
@@ -320,28 +335,36 @@ def run_batch(n, items, a, state):
     bdir = os.path.join(state, "batches", f"{time.strftime('%Y%m%d-%H%M%S')}-{n:04d}")
     out = os.path.join(bdir, "out")
     os.makedirs(out, exist_ok=True)
-    pkgs = sorted({p for s in items for p in (s.get("doctor") or {}).get("packages") or []})
-    py = sorted({p for s in items for p in (s.get("doctor") or {}).get("pythonPackages") or []})
+    # Registry plugins bring their own packages (their entry); the doctor's
+    # are for the others.
+    plain = [s for s in items if not s.get("registry")]
+    registry = sorted({s.get("manifestId") or s["id"] for s in items if s.get("registry")})
+    pkgs = sorted({p for s in plain for p in (s.get("doctor") or {}).get("packages") or []})
+    py = sorted({p for s in plain for p in (s.get("doctor") or {}).get("pythonPackages") or []})
     session = {s["id"]: session_changing(s) for s in items}
     # Replacement bars and session-changing plugins last (the shell restarts
     # after each of them anyway).
     if not a.keep_order:
         items = sorted(items, key=lambda s: (session[s["id"]], "bar" in (s.get("kinds") or [])))
     batch = {"plugins": [{"id": s["id"], "manifestId": s.get("manifestId"), "slug": s["slug"], "path": s["path"],
-                          "kinds": s.get("kinds"), "session": session[s["id"]]} for s in items],
+                          "kinds": s.get("kinds"), "session": session[s["id"]],
+                          "registry": bool(s.get("registry"))} for s in items],
              "timeout": a.plugin_timeout, "settle": a.settle}
     with open(os.path.join(bdir, "batch.json"), "w") as f:
         json.dump(batch, f, indent=1)
     t0 = time.time()
-    log(f"batch {n}: {len(items)} plugins, {len(pkgs)} packages, {len(py)} python modules; building the VM")
+    log(f"batch {n}: {len(items)} plugins ({len(registry)} from the registry), {len(pkgs)} packages, "
+        f"{len(py)} python modules; building the VM")
     try:
         driver = nix_build(["--impure", "-f", os.path.join(HERE, "vm.nix"), "driver",
                             "--argstr", "flake", a.flake, "--argstr", "packages", json.dumps(pkgs),
-                            "--argstr", "python", json.dumps(py)])
+                            "--argstr", "python", json.dumps(py), "--argstr", "registry", json.dumps(registry)])
     except RuntimeError as e:
         log(f"batch {n}: VM build failed; retrying without the extra packages")
         with open(os.path.join(bdir, "build-error.log"), "w") as f:
             f.write(str(e))
+        if registry:
+            raise  # a registry entry that doesn't build: nothing to fall back to
         driver = nix_build(["--impure", "-f", os.path.join(HERE, "vm.nix"), "driver", "--argstr", "flake", a.flake])
         pkgs, py = [], []
     built = time.time()
@@ -484,6 +507,9 @@ def main():
     ap.add_argument("--static-only", action="store_true")
     ap.add_argument("--redo", action="store_true", help="repeat plugins already in results.jsonl")
     ap.add_argument("--summary", action="store_true", help="only print the summary of results.jsonl")
+    ap.add_argument("--no-registry", action="store_true",
+                    help="add plugins the flake packages (pkgs/plugins) with `omarchy plugin add` like the others, "
+                         "instead of declaring them (omarchy.plugins.<id>.enable) in the VM")
     a = ap.parse_args()
     a.flake = os.path.abspath(a.flake)
     state = os.path.abspath(a.state)
@@ -523,7 +549,15 @@ def main():
         print(json.dumps(c, indent=1))
         return 0
 
+    # Plugins in the flake's registry are declared in their own batches'
+    # VMs (built with their helpers), not added by hand.
+    reg = set() if a.no_registry else registry_ids(a.flake)
+    for s in runnable:
+        s["registry"] = (s.get("manifestId") or s["id"]) in reg
+    declared = [s for s in runnable if s["registry"]]
+    runnable = [s for s in runnable if not s["registry"]]
     batches = [runnable[i:i + a.batch] for i in range(0, len(runnable), a.batch)]
+    batches += [declared[i:i + a.batch] for i in range(0, len(declared), a.batch)]
     with cf.ThreadPoolExecutor(max(1, a.jobs)) as ex:
         futures = [ex.submit(run_batch, n, b, a, state) for n, b in enumerate(batches)]
         for f in cf.as_completed(futures):

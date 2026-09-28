@@ -56,6 +56,14 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+
+      # The registry of packaged community plugins (pkgs/plugins/<id>).
+      pluginRegistry = import ./pkgs/plugins { inherit (nixpkgs) lib; };
+      registryArgs = pkgs: {
+        inherit pkgs;
+        omarchyUnstable = import inputs.nixpkgs-unstable { inherit (pkgs.stdenv.hostPlatform) system; };
+        omarchySrc = inputs.omarchy;
+      };
     in
     {
       # The desktop, as Home Manager and NixOS modules. They carry this
@@ -88,8 +96,19 @@
       # files, checked with upstream's validator), for `omarchy.plugins.<id>.src`
       # or anywhere else a plugin is needed as a package:
       #   omarchy.lib.mkPlugin { inherit pkgs; id = "acme.weather"; src = inputs.acme-weather; }
-      lib.mkPlugin = { pkgs, src, id ? null, version ? null }:
-        pkgs.callPackage ./pkgs/plugin.nix { omarchySrc = inputs.omarchy; } { inherit src id version; };
+      # With `helpers` (Nix-built programs copied into its tree), `patches`
+      # and `postPatch`, as the registry's entries use them.
+      lib.mkPlugin = { pkgs, src, id ? null, version ? null, patches ? [ ], postPatch ? "", helpers ? { } }:
+        pkgs.callPackage ./pkgs/plugin.nix { omarchySrc = inputs.omarchy; } {
+          inherit src id version patches postPatch helpers;
+        };
+
+      # The registry of packaged community plugins, as data, for installers:
+      # id → url, rev, hash, description, and what the entry adds (helpers,
+      # home links, packages, compositor plugins). A host installs one with
+      # `omarchy.plugins.<id>.enable = true`. Evaluated for x86_64-linux.
+      #   nix eval --json github:nix-desktops/omarchy#lib.plugins
+      lib.plugins = pluginRegistry.data (registryArgs nixpkgs.legacyPackages.x86_64-linux);
 
       # The dev environments behind Install > Development, also usable
       # directly: `nix flake new -t github:nix-desktops/omarchy#rust myproject`.
@@ -129,6 +148,13 @@
       } // (import ./pkgs/tools { inherit pkgs inputs; }) // {
         # Omarchy's default keybinds as data (keybinds.json).
         keybinds = pkgs.callPackage ./pkgs/keybinds { src = inputs.omarchy; };
+      });
+
+      # The registry's plugins, built with their helpers (not the home
+      # links: those need Home Manager):
+      #   nix build .#plugins.<id>
+      legacyPackages = forAllSystems (pkgs: {
+        plugins = pluginRegistry.packages (registryArgs pkgs);
       });
 
       checks = forAllSystems (pkgs: import ./tests { inherit inputs pkgs self; });

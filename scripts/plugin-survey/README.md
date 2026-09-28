@@ -67,6 +67,14 @@ screenshots), `results.jsonl`, `timings.jsonl` and `summary.md`.
      cache files a plugin writes later), and "Cannot open: <image>" when the
      image exists by the time the journal is read. Warnings don't make a
      plugin fail.
+   - **Registry plugins** (an id with `pkgs/plugins/<id>/default.nix` in
+     the flake) go in batches of their own whose VM declares them
+     (`vm.nix`'s `registry`: `omarchy.plugins.<id>.enable = true`, built
+     with their helpers), without the doctor's packages; they aren't added
+     or removed, and their journal is read from the shell's start. They
+     count as "works packaged" when they load without errors.
+     `--no-registry` adds them by hand like the others. nix-ld is on in
+     the VM (the NixOS module's `omarchy.nixLd`).
 3. **Results.** `results.jsonl` gets one line per plugin as its batch
    finishes: `id`, `repo`, `commit`, `category`, `static` (the doctor's
    verdict), `manifestId`, `runtime` (`loaded` / `errors` / `not-listed` / `not-added` /
@@ -80,6 +88,7 @@ screenshots), `results.jsonl`, `timings.jsonl` and `summary.md`.
 | --- | --- |
 | works as is | loads without errors, and the doctor found nothing missing |
 | works with packages | loads without errors with the packages the doctor named |
+| works packaged | in the flake's registry, declared, loads without errors |
 | Arch-only | uses pacman/yay/paru/… at runtime (it may load, but that part can't work) |
 | native build | needs something built (C++/Rust/Go, a compiled QML plugin, `npm install`, a prebuilt binary) |
 | fails to load | not listed or not enabled after `add`, QML errors naming it, or a bar widget that never gets a slot |

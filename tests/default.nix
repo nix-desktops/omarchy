@@ -17,6 +17,9 @@
 #   plugin-doctor  `omarchy plugin doctor` builds (its command database)
 #   catalog-plugins  lib.catalog's shell plugins fetch and validate
 #   plugins-shell-json  declared plugins switched on/off in shell.json
+#   plugin-registry  every packaged plugin (pkgs/plugins) declared by id in
+#             one home: helpers in their trees, home links, packages, the
+#             hyprland.lua loading compositor plugins
 #   plugins   a NixOS VM with shell plugins: `omarchy plugin add` of local
 #             git repos (python3 via envfs), a declared plugin, the doctor,
 #             /usr/share/omarchy, removal
@@ -63,6 +66,19 @@ let
         # every upstream package, is what's under test.
         omarchy.agents = [ "claude" "codex" "agy" ];
         omarchy.tools = [ "gh" "hunk" ];
+      }
+    ];
+  };
+
+  # Every plugin of the registry declared by id, and a compositor plugin.
+  registryHome = inputs.home-manager.lib.homeManagerConfiguration {
+    inherit pkgs;
+    modules = [
+      self.homeManagerModules.default
+      exampleHome
+      {
+        omarchy.plugins = pkgs.lib.genAttrs (builtins.attrNames self.lib.plugins) (_: { enable = true; });
+        omarchy.hyprland.plugins = [ "/run/test/libexample.so" ];
       }
     ];
   };
@@ -147,6 +163,31 @@ in
     name = id;
     path = self.lib.mkPlugin { inherit pkgs id; src = pkgs.fetchgit { inherit (p) url rev hash; }; };
   }) catalog.plugins);
+
+  plugin-registry = let
+    cfg = registryHome.config;
+    files = cfg.home-files;
+    entries = self.lib.plugins;
+  in pkgs.runCommand "omarchy-plugin-registry" { nativeBuildInputs = [ pkgs.jq ]; } ''
+    set -eu
+    ${pkgs.lib.concatStrings (pkgs.lib.mapAttrsToList (id: e: ''
+      echo "== ${id}"
+      tree=${files}/.config/omarchy/plugins/${id}
+      test "$(jq -r .id $tree/manifest.json)" = ${pkgs.lib.escapeShellArg id}
+      ${pkgs.lib.concatMapStrings (h: ''
+        test -f $tree/${h} -a ! -L $tree/${h} || { echo "${id}: helper ${h} missing"; exit 1; }
+      '') e.helpers}
+      ${pkgs.lib.concatMapStrings (h: ''
+        test -e ${files}/${h} || { echo "${id}: ~/${h} missing"; exit 1; }
+      '') e.home}
+    '') entries)}
+    # Switched on in the package's default layout.
+    for id in ${pkgs.lib.escapeShellArgs (builtins.attrNames entries)}; do
+      grep -q "$id" ${cfg.omarchy.package}/share/omarchy/config/omarchy/shell.json
+    done
+    grep -qF 'hl.plugin.load("/run/test/libexample.so")' ${files}/.config/hypr/hyprland.lua
+    touch $out
+  '';
 
   # The declared-plugin bookkeeping in shell.json (pkgs/plugins-shell-json.py).
   plugins-shell-json = pkgs.runCommand "omarchy-plugins-shell-json" { nativeBuildInputs = [ pkgs.python3 pkgs.jq ]; } ''

@@ -129,6 +129,15 @@ let
   usrShareOmarchy = if firstUser != null then config.home-manager.users.${firstUser}.omarchy.package
     else pkgs.callPackage ../../pkgs/omarchy.nix { src = inputs.omarchy; };
 
+  # /usr/share/fonts as on Arch (share/fonts/<family>/…): the system's
+  # fonts and the first desktop user's (Omarchy's come with Home Manager).
+  usrShareFonts = pkgs.buildEnv {
+    name = "omarchy-usr-share-fonts";
+    paths = config.fonts.packages
+      ++ lib.optional (firstUser != null) config.home-manager.users.${firstUser}.home.path;
+    pathsToLink = [ "/share/fonts" ];
+  };
+
   # The active theme, for the browser color policy.
   theme = import ../../lib/theme.nix { inherit (inputs) omarchy; inherit (cfg) stateDir; };
 in
@@ -334,6 +343,34 @@ in
       '';
     };
 
+    usrShare.voxtype = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        /usr/share/voxtype/quickshell: voxtype's shared Quickshell module
+        (from nixos-unstable's voxtype source; nixpkgs doesn't install it),
+        which voxtype plugins (Vox Portrait) import from that fixed path.
+      '';
+    };
+
+    nixLd.enable = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        nix-ld (`programs.nix-ld`), so prebuilt glibc binaries run: the
+        language servers and tools the editor and mise download, and the
+        helpers community shell plugins ship or download (an mruby runtime,
+        a PyInstaller bundle, a Node SEA, release binaries). Besides
+        nix-ld's defaults it offers the libraries those were found to link:
+        libevdev, PipeWire, PulseAudio, D-Bus, curl, OpenSSL, zlib, GLib,
+        libxkbcommon, Wayland, libstdc++/libgcc_s. On by default: this
+        desktop has always enabled nix-ld (for the editor's downloads), the
+        libraries are ones the desktop already has, and a plugin added with
+        `omarchy plugin add` runs unsandboxed in the shell anyway, so
+        loading its binaries opens nothing new.
+      '';
+    };
+
     plugins = mkOption {
       type = types.attrsOf (import ../plugin-options.nix { inherit lib; });
       default = { };
@@ -482,8 +519,15 @@ in
     };
 
     # Prebuilt binaries the editor and dev tools download (Mason's language
-    # servers, mise), which expect a regular Linux loader.
-    programs.nix-ld.enable = mkDefault true;
+    # servers, mise) and plugins ship, which expect a regular Linux loader
+    # (omarchy.nixLd).
+    programs.nix-ld = lib.mkIf cfg.nixLd.enable {
+      enable = mkDefault true;
+      libraries = options.programs.nix-ld.libraries.default ++ (with pkgs; [
+        stdenv.cc.cc.lib zlib curl openssl dbus glib libevdev pipewire
+        libpulseaudio libxkbcommon wayland
+      ]);
+    };
 
     # plocate's index, refreshed daily.
     services.locate = {
@@ -534,14 +578,27 @@ in
     # Shell plugins written for Arch: /usr/bin/<cmd> and #!/usr/bin/bash
     # through envfs, Omarchy's files at /usr/share/omarchy.
     services.envfs.enable = lib.mkIf cfg.envfs.enable (mkDefault true);
+    # The fallback directory serves processes started with no PATH (a
+    # plugin's Process with clearEnvironment execs /usr/bin/setsid,
+    # /usr/bin/mkdir, …): bash, coreutils and setsid besides env and sh.
     services.envfs.extraFallbackPathCommands = lib.mkIf cfg.envfs.enable ''
       ln -s ${pkgs.bashInteractive}/bin/bash $out/bash
+      for f in ${pkgs.coreutils}/bin/* ${pkgs.util-linux}/bin/setsid; do
+        [ -e "$out/''${f##*/}" ] || ln -s "$f" "$out/''${f##*/}"
+      done
     '';
-    systemd.tmpfiles.rules = lib.mkIf cfg.usrShare.enable [
+    systemd.tmpfiles.rules = lib.mkIf cfg.usrShare.enable ([
       "d /usr/share 0755 root root -"
       "L+ /usr/share/omarchy - - - - ${usrShareOmarchy}/share/omarchy"
       "L+ /usr/share/zoneinfo - - - - /etc/zoneinfo"
-    ];
+      "L+ /usr/share/fonts - - - - ${usrShareFonts}/share/fonts"
+      # Omarchy's logo where Arch's omarchy-settings installs it.
+      "d /usr/share/pixmaps 0755 root root -"
+      "L+ /usr/share/pixmaps/omarchy.png - - - - ${usrShareOmarchy}/share/omarchy/icon.png"
+    ] ++ lib.optionals cfg.usrShare.voxtype [
+      "d /usr/share/voxtype 0755 root root -"
+      "L+ /usr/share/voxtype/quickshell - - - - ${unstable.voxtype.src}/quickshell"
+    ]);
 
     assertions = [{
       assertion = cfg.homeManager.enable -> hasHomeManager;
@@ -557,7 +614,10 @@ in
         enable = mkDefault true;
         ecosystem.enable = mkDefault cfg.ecosystem.enable;
         # Only what's set, so a user's own definitions merge with them.
-        plugins = lib.mapAttrs (_: p: lib.filterAttrs (_: v: v != null && v != [ ]) p) cfg.plugins;
+        plugins = lib.mapAttrs (_: p: lib.filterAttrs (n: v: v != null && v != [ ] && v != { } && v != ""
+          && !(n == "registry" && v)) p) cfg.plugins;
+        # Compositor plugins are built against the Hyprland the system runs.
+        hyprland.package = mkDefault config.programs.hyprland.package;
         shell = mkDefault cfg.shell;
         stateDir = mkDefault cfg.stateDir;
         branding.name = mkDefault cfg.branding.name;
