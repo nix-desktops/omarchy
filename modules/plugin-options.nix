@@ -150,6 +150,80 @@ types.submodule ({ name, ... }: {
       description = "Hyprland Lua for this plugin, added to the generated hyprland.lua after its compositor plugins load.";
     };
 
+    userServices = mkOption {
+      type = types.attrsOf (types.oneOf [
+        types.path
+        types.lines
+        (types.submodule {
+          options = {
+            source = mkOption {
+              type = types.nullOr types.path;
+              default = null;
+              description = "The unit file.";
+            };
+            text = mkOption {
+              type = types.nullOr types.lines;
+              default = null;
+              description = "The unit's text (instead of `source`).";
+            };
+            wantedBy = mkOption {
+              type = types.nullOr (types.listOf types.str);
+              default = null;
+              example = [ ];
+              description = ''
+                Targets that pull the unit in. Null: its own `[Install]`
+                section's WantedBy=/RequiredBy= (what `systemctl --user
+                enable` does); `[ ]`: installed, not enabled.
+              '';
+            };
+          };
+        })
+      ]);
+      default = { };
+      example = lib.literalExpression ''
+        {
+          # Enabled as its [Install] section says.
+          "weatherd.service" = "''${weatherd}/share/systemd/user/weatherd.service";
+          # Socket-activated: only the socket is enabled.
+          "weatherd.socket" = ./weatherd.socket;
+          "omarchy-shell.service.d/weather.conf" = "[Service]\nEnvironment=WEATHER_UNITS=metric\n";
+        }
+      '';
+      description = ''
+        systemd user units (services, sockets, timers, drop-ins as
+        `<unit>.d/<name>.conf`) the plugin runs, by file name: a unit file,
+        its text, or `{ source | text; wantedBy; }`. Installed in
+        ~/.config/systemd/user through Home Manager (started, restarted and
+        stopped on switch like its own units) and enabled per their
+        `[Install]` section (`wantedBy` overrides it). A service whose
+        ReadWritePaths= name directories that may not exist yet gets an
+        `ExecStartPre=-+mkdir -p` for them: systemd refuses to start a unit
+        whose ReadWritePaths are missing.
+      '';
+    };
+
+    extraGroups = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      example = [ "input" ];
+      description = ''
+        Groups the plugin's user must be in (`input` for /dev/input). The
+        NixOS module adds them to the user's `extraGroups`; with Home
+        Manager alone they're a warning.
+      '';
+    };
+
+    services = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      example = [ "hardware.bluetooth.enable" "services.fprintd.enable" ];
+      description = ''
+        NixOS options (boolean paths) the plugin needs switched on: a
+        system service or driver it talks to. A hint: the NixOS module
+        warns about each that isn't on, it doesn't switch them on.
+      '';
+    };
+
     qmlModules = mkOption {
       type = types.listOf types.package;
       default = [ ];

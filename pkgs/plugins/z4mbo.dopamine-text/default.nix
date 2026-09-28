@@ -3,8 +3,8 @@
 # libpulse-simple). bridge.py compiles native/caret.cpp (a Hyprland plugin
 # for a precise caret) into ~/.cache when /usr/include/hyprland matches
 # the running Hyprland, and loads it. Pattern: a Python env with the
-# typelibs and libraries in a wrapper the QML runs, the AT-SPI bus's
-# activation files in the home, and the Hyprland plugin
+# typelibs and libraries in a wrapper the QML runs, the AT-SPI bus (the
+# NixOS module's; its activation files in the home too), and the Hyprland plugin
 # built by Nix, loaded by the bridge from the store.
 { lib, fetchFromGitHub, mkHyprlandPlugin, hyprland, writeShellScript, python3, gobject-introspection, at-spi2-core, glib, libpulseaudio, lua5_4 }:
 let
@@ -40,12 +40,12 @@ in
 {
   inherit src;
   helpers."bin/python" = python;
-  # AT-SPI needs its accessibility bus (a system setting on NixOS,
-  # services.gnome.at-spi2-core): the D-Bus activation file and its unit.
-  home = {
-    ".local/share/dbus-1/services/org.a11y.Bus.service" = "${at-spi2-core}/share/dbus-1/services/org.a11y.Bus.service";
-    ".config/systemd/user/at-spi-dbus-bus.service" = "${at-spi2-core}/lib/systemd/user/at-spi-dbus-bus.service";
-  };
+  # AT-SPI needs its accessibility bus: services.gnome.at-spi2-core, which
+  # the NixOS module turns on. For Home Manager on its own, the D-Bus
+  # activation file and its unit in the home.
+  services = [ "services.gnome.at-spi2-core.enable" ];
+  home.".local/share/dbus-1/services/org.a11y.Bus.service" = "${at-spi2-core}/share/dbus-1/services/org.a11y.Bus.service";
+  userServices."at-spi-dbus-bus.service" = "${at-spi2-core}/lib/systemd/user/at-spi-dbus-bus.service";
   postPatch = ''
     substituteInPlace Service.qml \
       --replace-fail '"/usr/bin/python"' 'decodeURIComponent(Qt.resolvedUrl("bin/python").toString().replace("file://",""))'

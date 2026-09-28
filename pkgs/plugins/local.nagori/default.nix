@@ -2,7 +2,7 @@
 # tracking. nagorid records focus into SQLite as a user service; the widget
 # runs `nagori …` from ~/.cargo/bin, ~/.local/bin or PATH. Upstream's
 # install.sh does cargo install plus the unit. Pattern: a package on PATH,
-# and its user service linked into the home.
+# and its user service (userServices).
 { lib, fetchFromGitHub, rustPlatform, writeText }:
 let
   src = fetchFromGitHub {
@@ -53,7 +53,6 @@ in
 {
   inherit src;
   packages = [ nagori ];
-  home.".config/systemd/user/nagori.service" = service;
-  home.".config/systemd/user/graphical-session.target.wants/nagori.service" = service;
+  userServices."nagori.service" = service;
   meta.description = "App focus tracking (nagori and nagorid built from crates/nagori, user service)";
 }

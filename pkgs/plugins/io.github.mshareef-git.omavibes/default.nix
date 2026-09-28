@@ -32,5 +32,7 @@ in
   inherit src;
   helpers."bin/wayvibes" = lib.getExe wayvibes;
   packages = [ procps ];
+  # /dev/input: the NixOS module adds the user to the group.
+  extraGroups = [ "input" ];
   meta.description = "Mechanical keyboard sounds (wayvibes built from third_party/wayvibes)";
 }

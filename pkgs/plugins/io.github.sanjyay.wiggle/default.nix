@@ -29,5 +29,7 @@ in
   helpers."scripts/wiggle-monitor" = lib.getExe wiggle-monitor;
   # gsettings (the cursor theme and size).
   packages = [ glib ];
+  # /dev/input: the NixOS module adds the user to the group.
+  extraGroups = [ "input" ];
   meta.description = "Shake to find the pointer (wiggle-monitor built from its C source)";
 }

@@ -32,7 +32,7 @@ in
   helpers."lib/argcshim.so" = "${argcshim}/lib/argcshim.so";
   qmlModules = [ omarchyUnstable.kdePackages.qtwebengine ];
   # Only the shell needs it (the shim does nothing in other processes).
-  home.".config/systemd/user/omarchy-shell.service.d/olook-argcshim.conf" = writeText "olook-argcshim.conf" ''
+  userServices."omarchy-shell.service.d/olook-argcshim.conf" = writeText "olook-argcshim.conf" ''
     [Service]
     Environment=LD_PRELOAD=${argcshim}/lib/argcshim.so
   '';

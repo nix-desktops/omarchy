@@ -3,7 +3,7 @@
 # service; Service.qml runs librepods-ctl from PATH and reads
 # ~/.local/state/librepods/status.json. The setup script cmake-builds it
 # into ~/.local. Its connection cards import QtQuick3D. Pattern: the daemon
-# on PATH with its user unit linked, and QML modules for Quickshell's Qt.
+# on PATH with its user unit, and QML modules for Quickshell's Qt.
 { lib, stdenv, fetchFromGitHub, cmake, ninja, pkg-config, qt6, openssl, libpulseaudio, omarchyUnstable }:
 let
   src = fetchFromGitHub {
@@ -32,8 +32,7 @@ in
 {
   inherit src;
   packages = [ librepods ];
-  home.".config/systemd/user/librepods.service" = "${librepods}/share/systemd/user/librepods.service";
-  home.".config/systemd/user/graphical-session.target.wants/librepods.service" = "${librepods}/share/systemd/user/librepods.service";
+  userServices."librepods.service" = "${librepods}/share/systemd/user/librepods.service";
   qmlModules = with omarchyUnstable.kdePackages; [ qtquick3d qtquicktimeline ];
   meta.description = "AirPods panel (its librepods daemon built with cmake, user service; QtQuick3D)";
 }

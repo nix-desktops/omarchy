@@ -36,8 +36,18 @@ screenshots), `results.jsonl`, `timings.jsonl` and `summary.md`.
 2. **Runtime, in logged-in Omarchy VMs, in batches** (`--batch`, 50 by
    default; `-j` VMs at once, 4 by default). Each batch's VM (`vm.nix`) has
    the packages the doctor named for its plugins (one environment above
-   the desktop's, so a `python3.withPackages` wins); its test driver runs
-   outside the Nix sandbox, so the VM has the network. `runtime.py`, for
+   the desktop's, so a `python3.withPackages` wins), the QML modules it
+   named (`omarchy.qmlModules`, beside the defaults) and the pacman shim
+   (the NixOS module's default, which the doctor assumed); its test driver
+   runs outside the Nix sandbox, so the VM has the network, with its own
+   `XDG_RUNTIME_DIR` and `TMPDIR` in the batch's directory (the driver
+   keeps the VM's state in `$XDG_RUNTIME_DIR/vm-state-machine`, so
+   parallel batches sharing one would share a VM's disk). When the VM
+   doesn't build because of one of the packages (`displaylink` is a manual
+   download), each package is built on its own (`vm.nix`'s `each`), the
+   ones that fail are dropped and recorded on the plugins that wanted them
+   (`dropped` in results.jsonl, "didn't build" in the summary), and the VM
+   is built again with the rest. `runtime.py`, for
    each plugin in turn: copies the clone in, `omarchy plugin add <repo>
    --yes --enable` as the user, waits `--settle` seconds, then records
    whether it's listed and enabled, its slot on the bar (size), errors and
@@ -78,7 +88,7 @@ screenshots), `results.jsonl`, `timings.jsonl` and `summary.md`.
      the VM (the NixOS module's `omarchy.nixLd`).
 3. **Results.** `results.jsonl` gets one line per plugin as its batch
    finishes: `id`, `repo`, `commit`, `category`, `static` (the doctor's
-   verdict), `manifestId`, `runtime` (`loaded` / `errors` / `not-listed` / `not-added` /
+   verdict), `manifestId`, `qmlModules`, `dropped`, `runtime` (`loaded` / `errors` / `not-listed` / `not-added` /
    `crash`), `errors`, `warnings`, `batch`, `restarted`, `packages` and `pythonPackages` (the doctor's),
    `missing`, `archOnly`, `native`, `screenshot`, `bar`, … A rerun skips
    plugins already there (`--redo` to repeat); a plugin whose batch never

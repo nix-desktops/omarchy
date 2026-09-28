@@ -4,7 +4,7 @@
 # ~/.local/bin/omayap). bin/omayap runs the daemon with that venv's python,
 # checking it's the user's own. Pattern: a Python env instead of the venv
 # (bin/omayap patched to it), the models fetched by Nix and linked where
-# setup.sh puts them, the user unit linked into the home.
+# setup.sh puts them, the user unit (userServices).
 { lib, stdenvNoCC, fetchFromGitHub, fetchurl, writeText, python3
 , pipewire, pulseaudio, wl-clipboard, systemd }:
 let
@@ -69,7 +69,6 @@ in
   '';
   home.".local/share/omayap/models/parakeet-tdt-ctc-110m" = parakeet;
   home.".local/share/omayap/models/silero_vad.onnx" = silero;
-  home.".config/systemd/user/omayap.service" = service;
-  home.".config/systemd/user/graphical-session.target.wants/omayap.service" = service;
+  userServices."omayap.service" = service;
   meta.description = "Dictation and meeting transcription (sherpa-onnx env, models fetched, user service)";
 }

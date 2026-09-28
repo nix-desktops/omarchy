@@ -3,7 +3,7 @@
 # `node ~/Projects/omostrich/daemon/daemon.mjs` (a checkout with npm
 # dependencies). Pattern: the checkout built with buildNpmPackage, the QML
 # and the unit pointed at it, the unit enabled.
-{ lib, fetchFromGitHub, buildNpmPackage, runCommand, coreutils, nodejs, zenity }:
+{ lib, fetchFromGitHub, buildNpmPackage, runCommand, nodejs, zenity }:
 let
   src = fetchFromGitHub {
     owner = "ninepointlabs";
@@ -19,14 +19,11 @@ let
     dontNpmBuild = true;
   };
   root = "${omostrich}/lib/node_modules/omostrich";
-  # Its ReadWritePaths must exist (install-daemon.sh creates them); "+" runs
-  # the mkdir outside the unit's sandbox.
+  # Its ReadWritePaths are made before it starts (userServices does that).
   unit = runCommand "omostrich.service" { } ''
     substitute ${src}/omostrich.service $out \
       --replace-fail 'ExecStart=node %h/Projects/omostrich/daemon/daemon.mjs' \
-        'ExecStart=${lib.getExe nodejs} ${root}/daemon/daemon.mjs' \
-      --replace-fail '[Service]' '[Service]
-    ExecStartPre=+${coreutils}/bin/mkdir -p %h/.local/share/omostrich %h/.local/state/omarchy/omostrich'
+        'ExecStart=${lib.getExe nodejs} ${root}/daemon/daemon.mjs'
   '';
 in
 {
@@ -35,8 +32,7 @@ in
     substituteInPlace Panel.qml ComposeOverlay.qml \
       --replace-fail 'Quickshell.env("HOME") + "/Projects/omostrich/bin/ctl.mjs"' '"${root}/bin/ctl.mjs"'
   '';
-  home.".config/systemd/user/omostrich.service" = unit;
-  home.".config/systemd/user/default.target.wants/omostrich.service" = unit;
+  userServices."omostrich.service" = unit;
   packages = [ nodejs zenity ];
   meta.description = "Nostr signer (its daemon built with buildNpmPackage, a user service)";
 }

@@ -37,6 +37,9 @@ let
       hyprlandPlugins = e.hyprlandPlugins or [ ];
       hyprlandConfig = e.hyprlandConfig or "";
       qmlModules = e.qmlModules or [ ];
+      userServices = e.userServices or { };
+      extraGroups = e.extraGroups or [ ];
+      services = e.services or [ ];
       section = e.section or null;
       meta = e.meta or { };
     };
@@ -82,5 +85,7 @@ in
       packages = map lib.getName e.packages;
       hyprlandPlugins = map lib.getName e.hyprlandPlugins;
       qmlModules = map lib.getName e.qmlModules;
+      userServices = lib.attrNames e.userServices;
+      inherit (e) extraGroups services;
     }) (entries args);
 }

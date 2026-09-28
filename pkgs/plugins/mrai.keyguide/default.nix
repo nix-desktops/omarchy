@@ -31,5 +31,7 @@ in
     substituteInPlace scripts/plugin-bootstrap.sh \
       --replace-fail 'umask 077' 'exit 0 # build/keyguide-observer is Nix-built'
   '';
+  # /dev/input: the NixOS module adds the user to the group.
+  extraGroups = [ "input" ];
   meta.description = "Shortcut HUD (keyguide-observer built from src/observer; needs input device access)";
 }

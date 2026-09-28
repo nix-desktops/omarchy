@@ -1,7 +1,7 @@
 # Bose NC 700: Service.qml talks to $XDG_RUNTIME_DIR/bose-700.sock, a user
 # socket unit whose service runs ~/.local/bin/bose-700-daemon (C++, BMAP
 # over Bluetooth); upstream's setup builds and installs them (pacman,
-# sudo). Pattern: links in the home: the units (socket enabled) with the
+# sudo). Pattern: links in the home and user units (socket enabled), the
 # service pointed at the store.
 { lib, fetchFromGitHub, stdenv, cmake, ninja, pkg-config, bluez, systemdLibs, runCommand }:
 let
@@ -35,9 +35,11 @@ in
   home = {
     ".local/bin/bose-700-daemon" = "${bose}/bin/bose-700-daemon";
     ".local/bin/bose-700-ctl" = "${bose}/bin/bose-700-ctl";
-    ".config/systemd/user/bose-700.service" = service;
-    ".config/systemd/user/bose-700.socket" = "${src}/daemon/bose-700.socket";
-    ".config/systemd/user/sockets.target.wants/bose-700.socket" = "${src}/daemon/bose-700.socket";
+  };
+  # Socket-activated: the socket enabled, the service started through it.
+  userServices = {
+    "bose-700.service" = { source = service; wantedBy = [ ]; };
+    "bose-700.socket" = "${src}/daemon/bose-700.socket";
   };
   meta.description = "Bose NC 700 headphones (bose-700-daemon built with CMake, as a socket-activated user unit)";
 }

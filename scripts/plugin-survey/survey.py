@@ -237,6 +237,22 @@ def static_one(p, tools, state):
 
 
 # ------------------------------------------------------------------ runtime
+def unbuildable(vmargs, pkgs, py):
+    """The extra packages (names as the doctor gives them, python modules as
+    python3Packages.<m>) that don't build on their own: vm.nix's `each`
+    built with --keep-going, then which outputs are missing."""
+    names = list(pkgs) + [f"python3Packages.{m}" for m in py]
+    if not names:
+        return []
+    r = subprocess.run(["nix", "eval", "--json", *vmargs, "eachOut"], capture_output=True, text=True)
+    if r.returncode != 0:
+        return []
+    outs = json.loads(r.stdout)
+    subprocess.run(["nix", "build", "--no-link", "--keep-going", *vmargs, *[f"each.{k}" for k in outs]],
+                   capture_output=True, text=True)
+    return [names[int(k[1:])] for k, path in outs.items() if not os.path.exists(path)]
+
+
 def category(s, rt):
     if s.get("static") == "clone-failed":
         return "clone-failed"
@@ -298,6 +314,7 @@ def record(s, rt, cat):
         "seconds": (rt or {}).get("seconds"), "batch": (rt or {}).get("batch"),
         "restarted": (rt or {}).get("restarted"), "barAfterRemove": (rt or {}).get("barAfterRemove"),
         "lockedBefore": (rt or {}).get("lockedBefore"), "screenshotKind": (rt or {}).get("screenshotKind"),
+        "qmlModules": d.get("qmlModules") or [], "dropped": s.get("dropped") or [],
     }
 
 
@@ -342,6 +359,7 @@ def run_batch(n, items, a, state):
     registry = sorted({s.get("manifestId") or s["id"] for s in items if s.get("registry")})
     pkgs = sorted({p for s in plain for p in (s.get("doctor") or {}).get("packages") or []})
     py = sorted({p for s in plain for p in (s.get("doctor") or {}).get("pythonPackages") or []})
+    qml = sorted({q for s in plain for q in (s.get("doctor") or {}).get("qmlModules") or []})
     session = {s["id"]: session_changing(s) for s in items}
     # Replacement bars and session-changing plugins last (the shell restarts
     # after each of them anyway).
@@ -355,23 +373,51 @@ def run_batch(n, items, a, state):
         json.dump(batch, f, indent=1)
     t0 = time.time()
     log(f"batch {n}: {len(items)} plugins ({len(registry)} from the registry), {len(pkgs)} packages, "
-        f"{len(py)} python modules; building the VM")
+        f"{len(py)} python modules, {len(qml)} QML modules; building the VM")
+    vmargs = lambda: ["--impure", "-f", os.path.join(HERE, "vm.nix"),
+                      "--argstr", "flake", a.flake, "--argstr", "packages", json.dumps(pkgs),
+                      "--argstr", "python", json.dumps(py), "--argstr", "qml", json.dumps(qml),
+                      "--argstr", "registry", json.dumps(registry)]
+    dropped = []
     try:
-        driver = nix_build(["--impure", "-f", os.path.join(HERE, "vm.nix"), "driver",
-                            "--argstr", "flake", a.flake, "--argstr", "packages", json.dumps(pkgs),
-                            "--argstr", "python", json.dumps(py), "--argstr", "registry", json.dumps(registry)])
+        driver = nix_build([*vmargs(), "driver"])
     except RuntimeError as e:
-        log(f"batch {n}: VM build failed; retrying without the extra packages")
         with open(os.path.join(bdir, "build-error.log"), "w") as f:
             f.write(str(e))
         if registry:
             raise  # a registry entry that doesn't build: nothing to fall back to
-        driver = nix_build(["--impure", "-f", os.path.join(HERE, "vm.nix"), "driver", "--argstr", "flake", a.flake])
-        pkgs, py = [], []
+        # One package that doesn't build (a manual download like displaylink,
+        # a broken one) shouldn't cost the batch all of them: find it, drop
+        # it, record it on the plugins that wanted it, and retry.
+        bad = unbuildable(vmargs(), pkgs, py)
+        log(f"batch {n}: VM build failed; dropping {', '.join(bad) or 'nothing found'} and retrying")
+        pkgs = [p for p in pkgs if p not in bad]
+        py = [p for p in py if f"python3Packages.{p}" not in bad]
+        dropped = bad
+        try:
+            driver = nix_build([*vmargs(), "driver"])
+        except RuntimeError as e2:
+            with open(os.path.join(bdir, "build-error.log"), "a") as f:
+                f.write("\n\n--- retry ---\n" + str(e2))
+            log(f"batch {n}: VM build failed again; retrying without the extra packages")
+            dropped = sorted(set(pkgs) | {f"python3Packages.{p}" for p in py} | set(bad))
+            pkgs, py, qml = [], [], []
+            driver = nix_build([*vmargs(), "driver"])
+    if dropped:
+        for s in items:
+            d = s.get("doctor") or {}
+            mine = [x for x in dropped if x in (d.get("packages") or [])
+                    or x.removeprefix("python3Packages.") in (d.get("pythonPackages") or [])]
+            if mine:
+                s["dropped"] = mine
     built = time.time()
     vmtmp = os.path.join(bdir, "vm")
     os.makedirs(vmtmp, exist_ok=True)
-    env = dict(os.environ, TMPDIR=vmtmp, SURVEY_BATCH=os.path.join(bdir, "batch.json"), SURVEY_OUT=out)
+    # The test driver keeps the VM's state (disk image, sockets) in
+    # $XDG_RUNTIME_DIR/vm-state-machine when that's set, else in TMPDIR:
+    # each batch gets its own, or parallel batches share one VM's state.
+    env = dict(os.environ, TMPDIR=vmtmp, XDG_RUNTIME_DIR=vmtmp,
+               SURVEY_BATCH=os.path.join(bdir, "batch.json"), SURVEY_OUT=out)
     limit = 600 + len(items) * (a.plugin_timeout * 3 + a.settle + 30)
     rc = None
     for attempt in range(2):
@@ -460,6 +506,8 @@ def summarize(state, ids=None):
             notes.append(r["errors"][0][:140].replace("|", "\\|"))
         if r.get("staticError"):
             notes.append(r["staticError"][:140].replace("|", "\\|").replace("\n", " "))
+        if r.get("dropped"):
+            notes.append("didn't build: " + ", ".join(r["dropped"]))
         if r.get("missing") and not r.get("packages"):
             notes.append("missing: " + ", ".join(r["missing"][:5]))
         pk = ", ".join((r.get("packages") or []) + [f"python3Packages.{p}" for p in r.get("pythonPackages") or []]

@@ -1,7 +1,7 @@
 # Sony headphones (WH-1000XM5): Service.qml runs ~/.local/bin/sony-ctl and
 # reads the status the sony-headphones-daemon user service writes; setup
 # builds both with CMake and installs the unit. Pattern: links in the home,
-# the unit included (enabled for the graphical session).
+# the unit a user service (enabled for the graphical session).
 { lib, stdenv, fetchFromGitHub, cmake, ninja, pkg-config, bluez, dbus }:
 let
   src = fetchFromGitHub {
@@ -24,7 +24,6 @@ in
   inherit src;
   home.".local/bin/sony-ctl" = "${omasony}/bin/sony-ctl";
   home.".local/bin/sony-headphones-daemon" = "${omasony}/bin/sony-headphones-daemon";
-  home.".config/systemd/user/sony-headphones.service" = unit;
-  home.".config/systemd/user/graphical-session.target.wants/sony-headphones.service" = unit;
+  userServices."sony-headphones.service" = unit;
   meta.description = "Sony headphones (sony-ctl and its daemon built with CMake, a user service)";
 }

@@ -22,8 +22,7 @@ let
 in
 {
   inherit src;
-  home.".config/systemd/user/omarchy-home-assistant.service" = unit;
-  home.".config/systemd/user/graphical-session.target.wants/omarchy-home-assistant.service" = unit;
+  userServices."omarchy-home-assistant.service" = unit;
   home.".local/share/omarchy-home-assistant/hass-cli-venv" = home-assistant-cli;
   home.".local/bin/omarchy-ha" = "${src}/bin/omarchy-ha";
   meta.description = "Home Assistant lights (its controller as a user unit, hass-cli)";

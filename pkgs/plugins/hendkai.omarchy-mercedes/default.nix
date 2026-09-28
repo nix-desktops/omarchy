@@ -34,8 +34,7 @@ in
   inherit src;
   home.".local/bin/omarchy-mercedes" = lib.getExe omarchy-mercedes;
   # Enabled as install.sh does; it waits for `omarchy-mercedes login`.
-  home.".config/systemd/user/omarchy-mercedes.service" = "${src}/systemd/omarchy-mercedes.service";
-  home.".config/systemd/user/default.target.wants/omarchy-mercedes.service" = "${src}/systemd/omarchy-mercedes.service";
+  userServices."omarchy-mercedes.service" = "${src}/systemd/omarchy-mercedes.service";
   packages = [ omarchy-mercedes ]; # `omarchy-mercedes status` from the widget
   meta.description = "Mercedes state of charge (the omarchy-mercedes connector and its user unit)";
 }

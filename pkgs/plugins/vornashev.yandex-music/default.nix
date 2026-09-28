@@ -1,9 +1,9 @@
 # Yandex Music: WidgetLogic.qml runs bootstrap.sh, i.e. install.sh
 # --backend-only: a venv at ~/.local/share/omarchy-yandex-music filled with
 # pip (and the vendored yandex-music wheel), backend.py and a CLI copied
-# next to it, and a user service. Pattern: those files as home links (the
-# unit enabled), bootstrap.sh patched to start the service.
-{ fetchFromGitHub, runCommand, python3, coreutils, mpv }:
+# next to it, and a user service. Pattern: those files as home links, the
+# unit a user service (userServices), bootstrap.sh patched to start it.
+{ fetchFromGitHub, runCommand, python3, mpv }:
 let
   src = fetchFromGitHub {
     owner = "vornashev";
@@ -23,12 +23,6 @@ let
   backend = runCommand "omarchy-yandex-music-backend.py" { } ''
     substitute ${src}/backend/backend.py $out --replace-fail '"/usr/bin/mpv"' '"${mpv}/bin/mpv"'
   '';
-  # Its ReadWritePaths must exist (install.sh creates it); "+" runs this
-  # outside the unit's sandbox.
-  unit = runCommand "omarchy-yandex-music.service" { } ''
-    substitute ${src}/systemd/omarchy-yandex-music.service $out --replace-fail '[Service]' '[Service]
-    ExecStartPre=+${coreutils}/bin/mkdir -p -m 700 %h/.config/omarchy-yandex-music'
-  '';
   app = ".local/share/omarchy-yandex-music";
 in
 {
@@ -40,8 +34,8 @@ in
   home."${app}/venv" = python3.withPackages (ps: [ ps.requests ps.dbus-next yandex-music ]);
   home."${app}/backend.py" = backend;
   home.".local/bin/omarchy-yandex-music" = "${src}/bin/omarchy-yandex-music";
-  home.".config/systemd/user/omarchy-yandex-music.service" = unit;
-  home.".config/systemd/user/default.target.wants/omarchy-yandex-music.service" = unit;
+  # Its ReadWritePaths (install.sh makes them) are made before it starts.
+  userServices."omarchy-yandex-music.service" = "${src}/systemd/omarchy-yandex-music.service";
   packages = [ mpv ];
   meta.description = "Yandex Music player (its backend's venv with the vendored yandex-music, a user service)";
 }

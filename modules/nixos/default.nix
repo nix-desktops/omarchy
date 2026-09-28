@@ -601,6 +601,12 @@ in
         [ -e "$out/''${f##*/}" ] || ln -s "$f" "$out/''${f##*/}"
       done
     '';
+    # The accessibility bus (AT-SPI), as on Arch where at-spi2-core comes
+    # with GTK and its D-Bus activation is always there: plugins that read
+    # the focused text or caret through it (Dopamine Text), screen readers.
+    # Cheap: the bus starts on demand.
+    services.gnome.at-spi2-core.enable = mkDefault true;
+
     systemd.tmpfiles.rules = lib.mkIf cfg.usrShare.enable ([
       "d /usr/share 0755 root root -"
       "L+ /usr/share/omarchy - - - - ${usrShareOmarchy}/share/omarchy"
@@ -622,6 +628,19 @@ in
 
   # The desktop for each user, through Home Manager.
   (lib.optionalAttrs hasHomeManager {
+    # Groups and system services the users' declared plugins need (their
+    # `extraGroups`, `services`), from every Home Manager user with the
+    # desktop's module.
+    users.users = lib.mapAttrs (_: hm: {
+      extraGroups = hm.omarchy.internal.pluginExtraGroups or [ ];
+    }) config.home-manager.users;
+    warnings = lib.concatLists (lib.mapAttrsToList (user: hm:
+      lib.concatLists (lib.mapAttrsToList (id: paths: lib.concatMap (path:
+        lib.optional (!(lib.attrByPath (lib.splitString "." path) false config == true))
+          "omarchy.plugins.\"${id}\" (user ${user}) needs `${path} = true;` in the NixOS configuration.")
+        paths) (hm.omarchy.internal.pluginServices or { })))
+      config.home-manager.users);
+
     home-manager.users = lib.mkIf cfg.homeManager.enable (lib.genAttrs cfg.users (_: {
       imports = [ homeManagerModules.default ];
       omarchy = {

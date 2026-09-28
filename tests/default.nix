@@ -21,8 +21,10 @@
 #   catalog-plugins  lib.catalog's shell plugins fetch and validate
 #   plugins-shell-json  declared plugins switched on/off in shell.json
 #   plugin-registry  every packaged plugin (pkgs/plugins) declared by id in
-#             one home: helpers in their trees, home links, packages, the
-#             hyprland.lua loading compositor plugins
+#             one home: helpers in their trees, home links, user units (and
+#             their wants links), packages, compositor plugins and QML
+#             modules built, the hyprland.lua loading compositor plugins;
+#             the NixOS module adding a plugin's extraGroups
 #   plugins   a NixOS VM with shell plugins: `omarchy plugin add` of local
 #             git repos (python3 via envfs), a declared plugin, the doctor,
 #             /usr/share/omarchy, removal
@@ -85,6 +87,25 @@ let
       }
     ];
   };
+
+  # The NixOS side of declared registry plugins: the groups they need
+  # (extraGroups) added to the user.
+  registryUserGroups = (inputs.nixpkgs.lib.nixosSystem {
+    modules = [
+      inputs.home-manager.nixosModules.home-manager
+      self.nixosModules.default
+      {
+        nixpkgs.hostPlatform = system;
+        fileSystems."/" = { device = "/dev/disk/by-label/nixos"; fsType = "ext4"; };
+        boot.loader.grub.device = "nodev";
+        system.stateVersion = "26.05";
+        omarchy = { enable = true; stateDir = ./state; users = [ "omarchy" ]; };
+        users.users.omarchy.isNormalUser = true;
+        home-manager.users.omarchy.home.stateVersion = "26.05";
+        omarchy.plugins."mrai.keyguide".enable = true;
+      }
+    ];
+  }).config.users.users.omarchy.extraGroups;
 
   # Run a command the way the shell's menu runs an action: in the
   # omarchy-shell service's cgroup, as the user, with the shell's
@@ -238,13 +259,31 @@ in
       echo "== ${id}"
       tree=${files}/.config/omarchy/plugins/${id}
       test "$(jq -r .id $tree/manifest.json)" = ${pkgs.lib.escapeShellArg id}
+      # A helper is a file or a directory (copied, not linked).
       ${pkgs.lib.concatMapStrings (h: ''
-        test -f $tree/${h} -a ! -L $tree/${h} || { echo "${id}: helper ${h} missing"; exit 1; }
+        test -e $tree/${h} -a ! -L $tree/${h} || { echo "${id}: helper ${h} missing"; exit 1; }
       '') e.helpers}
       ${pkgs.lib.concatMapStrings (h: ''
         test -e ${files}/${h} || { echo "${id}: ~/${h} missing"; exit 1; }
       '') e.home}
+      ${pkgs.lib.concatMapStrings (u: ''
+        test -e ${files}/.config/systemd/user/${u} || { echo "${id}: user unit ${u} missing"; exit 1; }
+      '') e.userServices}
     '') entries)}
+    # Every entry's packages, compositor plugins and QML modules build
+    # (the home's profile has the packages).
+    echo ${cfg.home.path} ${pkgs.lib.escapeShellArgs (map toString cfg.omarchy.hyprland.plugins)} \
+      ${pkgs.lib.escapeShellArgs (map toString cfg.omarchy.internal.pluginQmlModules)} >/dev/null
+    # User units: enabled per their [Install] (or `wantedBy`), ReadWritePaths made first.
+    units=${files}/.config/systemd/user
+    test -e $units/graphical-session.target.wants/nagori.service
+    test -e $units/sockets.target.wants/bose-700.socket
+    test ! -e $units/graphical-session.target.wants/bose-700.service
+    test ! -e $units/default.target.wants/omaspotify.service
+    grep -qx 'ExecStartPre=-+.*/bin/mkdir -p -m 0700 %h/.local/share/omostrich %h/.local/state/omarchy/omostrich' $units/omostrich.service
+    test -e $units/omarchy-shell.service.d/olook-argcshim.conf
+    # Groups: the NixOS module puts the user in the ones plugins declare.
+    test ${if builtins.elem "input" registryUserGroups then "yes" else "no:${pkgs.lib.concatStringsSep "," registryUserGroups}"} = yes
     # Switched on in the package's default layout.
     for id in ${pkgs.lib.escapeShellArgs (builtins.attrNames entries)}; do
       grep -q "$id" ${cfg.omarchy.package}/share/omarchy/config/omarchy/shell.json
@@ -304,7 +343,23 @@ in
         configDir = "/home/omarchy/nixos";
         login.autoLogin = "omarchy";
         # Declared at the NixOS level, passed to the user's Home Manager.
-        plugins."io.github.proxy1967.logi-battery".src = fixtures.logi-battery;
+        plugins."io.github.proxy1967.logi-battery" = {
+          src = fixtures.logi-battery;
+          # A user unit whose ReadWritePaths don't exist yet (made first),
+          # enabled from its [Install]; a group for the user.
+          userServices."plugin-test.service" = ''
+            [Service]
+            Type=oneshot
+            RemainAfterExit=yes
+            ProtectHome=read-only
+            ReadWritePaths=%h/.local/share/plugin-test
+            ExecStart=${pkgs.coreutils}/bin/touch %h/.local/share/plugin-test/ran
+
+            [Install]
+            WantedBy=default.target
+          '';
+          extraGroups = [ "input" ];
+        };
       };
       users.users.omarchy.isNormalUser = true;
       home-manager.users.omarchy.home.stateVersion = "26.05";
@@ -367,6 +422,11 @@ in
       declared = "io.github.proxy1967.logi-battery"
       link = f"{home}/.config/omarchy/plugins/{declared}"
       machine.succeed(f"test -L {link} && readlink -f {link} | grep -q '^/nix/store/'")
+      # Its user unit ran at login (its ReadWritePaths made first), and the
+      # user is in the group it declares.
+      machine.wait_until_succeeds(f"test -f {home}/.local/share/plugin-test/ran", timeout=60)
+      machine.succeed("systemctl --user -M omarchy@ is-active plugin-test.service")
+      machine.succeed("id -nG omarchy | grep -qw input")
       machine.wait_until_succeeds(f"{user} '{session} omarchy plugin list --json' | jq -e 'any(.[]; .id == \"{declared}\" and .enabled)'", timeout=60)
       machine.wait_until_succeeds(f"{user} '{session} omarchy-shell shell debugBarGeometry' | jq -e 'any(.[]; .id == \"{declared}\")'", timeout=60)
       # Its reader is a #!/usr/bin/python3 script: it runs (no mouse here,

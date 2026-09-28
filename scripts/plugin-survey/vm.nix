@@ -13,9 +13,18 @@
 # with their helpers at build time instead of `omarchy plugin add`. nix-ld
 # is on (omarchy.nixLd, the NixOS module's default), as on a user's machine.
 #
+# `qml` (a JSON list of Qt package names, the doctor's `qmlModules`) adds
+# QML modules from Quickshell's Qt to the shell's import path, on top of
+# omarchy.qmlModules' defaults. The pacman shim is on (the NixOS module's
+# default), as the doctor assumed (--assume-pacman-shim).
+#
+# `each` is every extra package and Python module on its own (p0, p1, …
+# in the order given: packages, then python modules), so survey.py can
+# find the one that doesn't build.
+#
 # `available` lists every command on the shell's PATH in the VM without
 # extra packages, for the doctor's static pass (--available).
-{ flake ? toString ../.., packages ? "[]", python ? "[]", registry ? "[]", system ? builtins.currentSystem }:
+{ flake ? toString ../.., packages ? "[]", python ? "[]", qml ? "[]", registry ? "[]", system ? builtins.currentSystem }:
 let
   self = builtins.getFlake flake;
   inherit (self) inputs;
@@ -38,6 +47,12 @@ let
   # python with modules wins); collisions between the extras are ignored.
   extraEnv = pkgs.buildEnv { name = "plugin-survey-packages"; paths = extra; ignoreCollisions = true; };
 
+  qmlNames = builtins.fromJSON qml;
+
+  each = lib.listToAttrs (lib.imap0 (i: value: { name = "p${toString i}"; inherit value; })
+    (map (n: pkgs.buildEnv { name = "survey-${n}"; paths = resolve n; ignoreCollisions = true; }) names
+     ++ map (m: pkgs.python3.withPackages (ps: lib.optional (ps ? ${m} && evaluates ps.${m}) ps.${m})) modules));
+
   test = pkgs.testers.runNixOSTest {
     name = "omarchy-plugin-survey";
     nodes.machine = { lib, ... }: {
@@ -55,8 +70,11 @@ let
       };
       users.users.omarchy = { isNormalUser = true; extraGroups = [ "wheel" ]; };
       security.sudo.wheelNeedsPassword = false;
-      home-manager.users.omarchy = {
+      home-manager.users.omarchy = { omarchyUnstable, ... }: {
         home.stateVersion = "26.05";
+        # The QML modules the doctor named, beside the defaults.
+        omarchy.qmlModules = lib.mkOptionDefault (lib.concatMap (n:
+          lib.optional (omarchyUnstable.kdePackages ? ${n}) omarchyUnstable.kdePackages.${n}) qmlNames);
         home.packages = lib.optional (extra != [ ]) (lib.hiPrio extraEnv);
         # Stay awake (what `omarchy toggle idle stay-awake` writes): no
         # screensaver at 150 s and no lock at 300 s in the middle of a batch,
@@ -85,6 +103,8 @@ let
 in
 {
   inherit (test) driver;
+  inherit each;
+  eachOut = lib.mapAttrs (_: d: d.outPath) each;
 
   available = pkgs.runCommand "omarchy-shell-commands" { } ''
     for d in ${test.nodes.machine.home-manager.users.omarchy.home.path}/bin \

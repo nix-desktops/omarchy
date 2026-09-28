@@ -54,7 +54,8 @@ in
     ".local/lib/omaspotify/omaspotify-backend" = lib.getExe backend;
     ".local/lib/omaspotify/backend-source.sha256" = sourceId;
     ".local/lib/omaspotify/backend-binary.sha256" = binaryHash;
-    ".config/systemd/user/omaspotify.service" = unit;
   };
+  # On demand (no [Install]): the panel starts it.
+  userServices."omaspotify.service" = unit;
   meta.description = "Spotify panel (the librespot playback backend built from backend/, as a user unit)";
 }

@@ -22,7 +22,7 @@
 # `omarchy plugin doctor [id|path]` (pkgs/plugin-doctor.nix) reads a
 # plugin's files and names what's missing and the nixpkgs packages for it.
 { inputs }:
-{ config, lib, pkgs, omarchyUnstable, ... }:
+{ config, lib, pkgs, omarchyUnstable, ... }@args:
 let
   cfg = config.omarchy;
   inherit (lib) mkOption types;
@@ -53,6 +53,9 @@ let
       hyprlandPlugins = e.hyprlandPlugins ++ p.hyprlandPlugins;
       hyprlandConfig = e.hyprlandConfig + p.hyprlandConfig;
       qmlModules = e.qmlModules ++ p.qmlModules;
+      userServices = e.userServices // p.userServices;
+      extraGroups = e.extraGroups ++ p.extraGroups;
+      services = e.services ++ p.services;
       section = if p.section != null then p.section else e.section;
     };
 
@@ -69,6 +72,28 @@ let
       };
   };
   built = lib.mapAttrs pluginPackage sourced;
+
+  # Their systemd user units, laid out as ~/.config/systemd/user (the
+  # wants links from each unit's [Install], ReadWritePaths made first):
+  # pkgs/plugin-user-units.py.
+  unitList = lib.concatLists (lib.mapAttrsToList (id: p: lib.mapAttrsToList (name: u:
+    let
+      spec = if builtins.isAttrs u && !(lib.isDerivation u) && !(u ? outPath) then u else
+        if builtins.isString u && (lib.hasInfix "\n" u || !lib.hasPrefix "/" u) then { text = u; } else { source = u; };
+    in {
+      inherit name;
+      source =
+        if spec.text or null != null then pkgs.writeText "${lib.replaceStrings [ "/" ] [ "-" ] name}" spec.text
+        else "${spec.source}";
+      wantedBy = spec.wantedBy or null;
+    }) p.userServices) enabled);
+  userUnits = pkgs.runCommand "omarchy-plugin-user-units" {
+    units = builtins.toJSON unitList;
+    passAsFile = [ "units" ];
+  } ''
+    mkdir $out
+    ${pkgs.python3}/bin/python3 ${../../pkgs/plugin-user-units.py} "$unitsPath" $out ${pkgs.coreutils}/bin/mkdir
+  '';
 
   declaredJson = pkgs.writeText "omarchy-declared-plugins.json" (builtins.toJSON
     (lib.mapAttrsToList (id: p: {
@@ -111,6 +136,20 @@ in
       type = types.listOf types.attrs;
       default = [ ];
       description = "Declared plugins with a source: id, section and the built plugin (dir), for the package.";
+    };
+
+    internal.pluginExtraGroups = mkOption {
+      internal = true;
+      type = types.listOf types.str;
+      default = [ ];
+      description = "Groups declared plugins need the user in (their `extraGroups`), for the NixOS module.";
+    };
+
+    internal.pluginServices = mkOption {
+      internal = true;
+      type = types.attrsOf (types.listOf types.str);
+      default = { };
+      description = "NixOS options declared plugins need on (their `services`), by plugin id.";
     };
 
     internal.pluginQmlModules = mkOption {
@@ -177,11 +216,22 @@ in
       message = "omarchy.plugins.\"${id}\": `helpers`, `patches` and `postPatch` need the plugin declared with a source (`src`, `url`, or a registry entry).";
     }) enabled;
 
+    # Without the NixOS module (Home Manager on its own) groups and system
+    # services are the system's to add.
+    warnings = lib.optional (!(args ? osConfig) && config.omarchy.internal.pluginExtraGroups != [ ])
+      "omarchy.plugins: add this user to the groups ${lib.concatStringsSep ", " config.omarchy.internal.pluginExtraGroups} (users.users.<name>.extraGroups); the plugins declared need them."
+      ++ lib.optionals (!(args ? osConfig)) (lib.concatLists (lib.mapAttrsToList (id: paths:
+        map (path: "omarchy.plugins.\"${id}\" needs `${path} = true;` in the NixOS configuration.") paths)
+        config.omarchy.internal.pluginServices));
+
     home.packages = lib.concatMap (p: p.packages) (lib.attrValues enabled);
 
     # Paths plugins hardcode in the home: ~/.local/bin/x, a venv.
     home.file = lib.mkMerge (lib.mapAttrsToList (_: p:
       lib.mapAttrs (_: target: { source = target; }) p.home) enabled);
+
+    omarchy.internal.pluginExtraGroups = lib.unique (lib.concatMap (p: p.extraGroups) (lib.attrValues enabled));
+    omarchy.internal.pluginServices = lib.filterAttrs (_: s: s != [ ]) (lib.mapAttrs (_: p: p.services) enabled);
 
     omarchy.internal.pluginQmlModules = lib.concatMap (p: p.qmlModules) (lib.attrValues enabled)
       ++ lib.optional cfg.qtWebEngine.enable omarchyUnstable.kdePackages.qtwebengine;
@@ -191,7 +241,12 @@ in
       lib.optionalString (p.hyprlandConfig != "") "-- omarchy.plugins.\"${id}\"\n${p.hyprlandConfig}\n") enabled);
 
     xdg.configFile = lib.mapAttrs' (id: pkg:
-      lib.nameValuePair "omarchy/plugins/${id}" { source = pkg; }) built;
+      lib.nameValuePair "omarchy/plugins/${id}" { source = pkg; }) built
+      # Plugins' user units, linked file by file among Home Manager's own
+      # (sd-switch starts, restarts and stops them on switch).
+      // lib.optionalAttrs (unitList != [ ]) {
+        "systemd/user" = { source = userUnits; recursive = true; };
+      };
 
     # For the package: declared plugins in the default layout.
     omarchy.internal.declaredPlugins = lib.mapAttrsToList (id: p: {
