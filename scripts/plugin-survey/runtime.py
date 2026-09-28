@@ -39,7 +39,8 @@ ERROR_WORDS = ("rror", "failed", "not installed", "not a type", "is not defined"
                "is not a function", "undefined", "Type error", "unavailable", "No such file")
 # First-run noise, not failures: Quickshell's FileView reading a state or
 # cache file a plugin writes later, and an image that isn't there yet.
-FILEVIEW_MISSING = re.compile(r"FileView .*Read of (\S+) failed: File does not exist")
+# FileView and components built on it (a plugin's own ManifestServicePath …).
+FILEVIEW_MISSING = re.compile(r"QML \S+ at \S+: Read of (/\S+) failed: File does not exist")
 CANNOT_OPEN = re.compile(r"Cannot open: (?:file://)?(/\S+)")
 URL = re.compile(r"(?:file|qrc|https?)://\S+")
 
@@ -83,9 +84,19 @@ def classify(lines, names):
     like mirror-x contain "rror"); DEBUG lines (console.log, the shell's
     own "reloading <id>") are never errors."""
     errors, warnings = [], []
+    # A delegate whose creation was cut short because the shell reloaded
+    # the plugin while it was building ("Object or context destroyed during
+    # incubation" follows): the reload's doing, not the plugin's.
+    reloaded = any("destroyed during incubation" in l for l in lines)
     for l in lines:
         body = l.strip()
         if body.startswith("DEBUG"):
+            continue
+        # Qt's layout advice ("Detected anchors on an item that is managed
+        # by a layout. This is undefined behavior; …") isn't an error.
+        if "Detected anchors on an item that is managed by a layout" in l or (
+                reloaded and ("Cannot create delegate" in l or "destroyed during incubation" in l)):
+            warnings.append(l[:400])
             continue
         m = FILEVIEW_MISSING.search(l)
         if m and m.group(1).startswith((home + "/", "/tmp/", "/run/user/")):

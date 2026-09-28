@@ -709,6 +709,48 @@ enable/disable/clone/list/validate`, Setup > Plugins; manual
     native-build review, 34/36 false positives cleared, needs-helper
     77/79, prebuilt 27/27 and compiled-QML 6/6 kept (python-deps 19/21,
     optional-helper 19/24).
+- **Packaged plugins, system side (2026-09-29).** Entries (and
+  `omarchy.plugins.<id>`) gained `userServices` (systemd user units:
+  `"<unit>" = file | text | { source/text; wantedBy; }`, laid out by
+  pkgs/plugin-user-units.py as ~/.config/systemd/user through Home
+  Manager, enabled per their `[Install]` like `systemctl --user enable`,
+  and a service with `ReadWritePaths=` gets `ExecStartPre=-+mkdir -p -m
+  0700 <paths>`: systemd won't start it while one is missing), `extraGroups`
+  (the NixOS module adds them to every Home Manager user whose plugins ask:
+  `input` for omavibes, wiggle, keyguide; a warning with Home Manager
+  alone) and `services` (NixOS options a plugin needs, a warning when off).
+  The 13 entries that linked units by hand use `userServices`. The NixOS
+  module turns on `services.gnome.at-spi2-core` (mkDefault; Arch has the
+  AT-SPI bus with GTK). checks.plugin-registry allows directory helpers,
+  builds every entry's packages, compositor plugins and QML modules, and
+  checks units, wants links and groups; checks.plugins runs a declared
+  user unit (its ReadWritePaths made) and group in the VM. README: user
+  units, `export-ignore` (fetchFromGitHub's tarball drops those paths), and
+  the patterns from packaging 126 plugins.
+  **Survey harness:** each batch has its own `XDG_RUNTIME_DIR` (the test
+  driver keeps `vm-state-machine` there, so parallel batches shared one);
+  a VM that fails to build over one package (displaylink) drops only
+  that one (`vm.nix`'s `each`, built with --keep-going) and records it
+  (`dropped`); the doctor's QML modules go into the VM; Qt's "anchors on an
+  item managed by a layout" advice, a delegate cut short by the shell's own
+  reload, and a FileView subclass's missing state file are warnings.
+  **Full resurvey** (2026-09-29, `--redo -j 6`, ~3 h, state
+  /tmp/claude-1000/plugin-survey: final2.json, report-rows2.json,
+  worse2.json): of 3,668, **3,418 work (93.2%)**: 2,529 as is, 770 with
+  packages, 119 packaged (the registry, declared); 40 Arch-only, 73 native
+  build, 122 fail to load, 15 clone failed (before: 3,029 of 3,618, 83.7%).
+  Of the 250 that don't: 69 false alarms (harmless startup warnings,
+  optional helpers, static binaries that run), 9 need hardware, 2 packages
+  or an option (noto-fonts; `omarchy.usrShare.voxtype`), 49 plugin bugs
+  (7 of the registry's 126: upstream QML errors), 51 not portable (package
+  managers, root daemons, kernel modules), 55 need something built or
+  packaged that isn't yet (the registry's next candidates), 15 gone.
+  20 got "worse", none from our changes: 11 Arch-only plugins the shim
+  let through to the load check (their own QML errors), 8 native builds
+  now declared from the registry that fail on upstream QML bugs (known to
+  the packaging agents), and azterisk.display-manager (warnings from a
+  binding that returns undefined; its first run's harness didn't count
+  them). 9 more were harness false positives, fixed and rerun (8 load).
 - **Unsolved:** pacman/yay/paru plugins that update, install or search
   (update checkers, package menus, pacman.log readers);
   native builds not in the registry yet (C/C++/Rust helpers, compiled QML plugins, `npm install`,

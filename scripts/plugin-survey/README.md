@@ -76,7 +76,9 @@ screenshots), `results.jsonl`, `timings.jsonl` and `summary.md`.
      `warnings`, not `errors`: Quickshell's FileView "Read of … failed: File
      does not exist" for a file under the home, /tmp or /run/user (state and
      cache files a plugin writes later), and "Cannot open: <image>" when the
-     image exists by the time the journal is read. Warnings don't make a
+     image exists by the time the journal is read; Qt's "Detected anchors on an item that is
+     managed by a layout" advice; and a delegate whose creation the shell's
+     own reload cut short ("destroyed during incubation"). Warnings don't make a
      plugin fail.
    - **Registry plugins** (an id with `pkgs/plugins/<id>/default.nix` in
      the flake) go in batches of their own whose VM declares them
