@@ -94,9 +94,12 @@ let
       OMARCHY_STATE = cfg.stateDirPath;
       OMARCHY_CONFIG = cfg.configDir;
       OMARCHY_DEV_TEMPLATES = devTemplatesDir;
-      OMARCHY_COMMUNITY_THEMES = ../../data/community-themes.json;
+      # Interpolated, so the files are copied with a reference (a bare path
+      # would be the flake source's store path, without its context).
+      OMARCHY_COMMUNITY_THEMES = "${../../data/community-themes.json}";
       OMARCHY_THEMES = themesTree;
       OMARCHY_AGENTS = cfg.catalogFiles.agents;
+      OMARCHY_ARCH_PACKAGES = "${../../data/arch-packages.json}";
     };
     text = builtins.readFile ../../bin/${name + ".sh"};
   };
@@ -124,7 +127,7 @@ let
     (command "omarchy-pkg-remove"             [ pkgs.gum pkgs.jq pkgs.coreutils ])
     (command "omarchy-pkg-present"            [ pkgs.jq ])
     (command "omarchy-pkg-missing"            [ ])
-    (command "omarchy-pkg-attr"               [ ])
+    (command "omarchy-pkg-attr"               [ pkgs.jq ])
     (command "omarchy-pkg-add"                [ ])
     (command "omarchy-pkg-aur-add"            [ ])
     (command "omarchy-pkg-drop"               [ ])
@@ -245,6 +248,7 @@ in
     (import ./catalog.nix { inherit inputs; })
     (import ./shell.nix { inherit inputs; })
     (import ./plugins.nix { inherit inputs; })
+    (import ./pacman-shim.nix { inherit inputs; })
     ./seed.nix
   ];
 

@@ -168,14 +168,15 @@ describes: `omarchy plugin add <git-url> --enable`, `update`, `remove`,
 live in `~/.config/omarchy/plugins`, which is yours.
 
 Most community plugins ([omarchyplugins.com](https://omarchyplugins.com))
-are written for Arch. The NixOS module meets them halfway, both options on
-by default:
+are written for Arch. The NixOS module meets them halfway, all on by
+default:
 
 | Option (NixOS) | |
 | --- | --- |
 | `omarchy.envfs.enable` | NixOS's envfs on `/usr/bin` and `/bin`: `/usr/bin/python3`, `#!/usr/bin/bash`, `/usr/bin/omarchy-*` resolve to the command on the calling process's PATH (for plugins: the shell's, which has your profile). A command that isn't on that PATH stays missing. |
 | `omarchy.usrShare.enable` | `/usr/share/omarchy` (Omarchy's files, where Arch has them), `/usr/share/zoneinfo`, `/usr/share/fonts` (the system's and your fonts, Arch's layout) and `/usr/share/pixmaps/omarchy.png` |
 | `omarchy.nixLd.enable` | nix-ld, with the libraries plugins' prebuilt helpers link (libevdev, PipeWire, PulseAudio, D-Bus, curl, OpenSSL, GLib, Wayland, …): binaries a plugin ships or downloads run |
+| `omarchy.pacmanShim.enable` | A `pacman` (with `expac` and `vercmp`) that answers package *queries* from the NixOS system: `pacman -Q[q] [pkg…]`, `-Qi` (pacman's format, Provides included), `-Q "pkg>=1.2"`, `-Qe/-Qd/-Qm/-Qn`, `-Qo <file>`, `-Ql`, `-Qs`, `-T`, `expac -Q`. Plugins ask by Arch name: `python-foo`, `qt6-base`, `brave-bin`, `omarchy` (upstream's version) and the other names in `data/arch-packages.json` map to what's installed. Installs, removals and updates (`-S`, `-R`, `-U`, `-Syu`, `-Si`, `-Ss`, `-Qu`) fail with what to add to your configuration instead. Also Home Manager's `omarchy.pacmanShim.enable`. |
 
 and the shell can import `Qt5Compat.GraphicalEffects`, `QtMultimedia`,
 `QtWebSockets`, `QtPositioning`, `Qt.labs.lottieqt` and `QtQuick3D`
@@ -186,8 +187,11 @@ Quickshell module at `/usr/share/voxtype/quickshell` for voxtype plugins.
 `omarchy plugin doctor [id|path]` reads a plugin's files (it runs nothing)
 and says what it needs here: the commands it runs that aren't on the shell's
 PATH and the nixpkgs package for each (from nixpkgs' command-not-found
-database, offline), Python modules, QML modules the shell lacks, and what
-won't work at all (pacman/AUR, native builds):
+database, offline), the nixpkgs packages for the Arch packages it installs
+or tells you to install, Python modules, QML modules the shell lacks (with
+the `omarchy.qmlModules` line), and what won't work at all (pacman/AUR
+updates and installs at runtime, native builds). Plugins that only ask
+pacman what's installed are fine with the pacman shim:
 
 ```
 $ omarchy plugin doctor io.github.sanjuanjor.typist
@@ -241,8 +245,14 @@ shell and that sticks; drop it from the config and it's switched off.
 for other uses, `lib.plugins` lists the registry, and `lib.catalog.plugins`
 lists a few that work as is.
 
-What doesn't work, and can't from here: plugins that install or query
-packages with pacman/yay/paru, ones that need a native build (C++/Rust
+Upstream's own menu needs the pacman shim too: its install and remove
+guards read `pacman -Qq` and `pacman -Qi` (MenuModel.js), and so do the
+three dozen menu and launcher plugins forked from it; with the shim they see
+what's installed.
+
+What doesn't work, and can't from here: plugins that install packages or
+check for updates with pacman/yay/paru (`checkupdates`, `yay -Qua`,
+`paccache`, the sync database), ones that need a native build (C++/Rust
 helpers, compiled QML plugins) or `npm install` and aren't in the registry
 yet, commands nixpkgs doesn't have, and fixed paths other than the above
 (`/usr/lib/…`, `/usr/share/icons/…`, `/opt/…`). A process that clears its

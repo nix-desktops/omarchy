@@ -30,8 +30,9 @@ screenshots), `results.jsonl`, `timings.jsonl` and `summary.md`.
    LFS or other helpers: nothing from the repository runs on the host),
    upstream's `omarchy-plugin-validate`, and `omarchy plugin doctor --json`
    against the VM's shell PATH (`vm.nix`'s `available`: the commands the
-   desktop has without extra packages) with envfs and /usr/share/omarchy
-   assumed on, as the NixOS module sets them. Cached in `static/`.
+   desktop has without extra packages) with envfs, /usr/share/omarchy and
+   the pacman shim assumed on, as the NixOS module sets them. Cached in
+   `static/`.
 2. **Runtime, in logged-in Omarchy VMs, in batches** (`--batch`, 50 by
    default; `-j` VMs at once, 4 by default). Each batch's VM (`vm.nix`) has
    the packages the doctor named for its plugins (one environment above

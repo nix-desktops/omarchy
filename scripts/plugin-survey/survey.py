@@ -217,7 +217,7 @@ def static_one(p, tools, state):
             except (OSError, ValueError):
                 s["kinds"] = []
             r = subprocess.run([tools.doctor, "--json", "--available", tools.available,
-                                "--assume-envfs", "--assume-usr-share", d],
+                                "--assume-envfs", "--assume-usr-share", "--assume-pacman-shim", d],
                                capture_output=True, text=True, timeout=300)
             try:
                 doc = json.loads(r.stdout)
@@ -225,7 +225,8 @@ def static_one(p, tools, state):
                 doc = {"verdict": "doctor-failed", "error": r.stderr[-500:]}
             s["doctorBuild"] = tools.doctor
             s["doctor"] = {k: doc.get(k) for k in ("verdict", "flags", "packages", "pythonPackages", "options", "nixos",
-                                                   "archOnly", "archInstall", "native", "qmlMissing")}
+                                                   "archOnly", "archInstall", "native", "qmlMissing",
+                                                   "qmlModules", "archPackages", "pacmanQueries")}
             s["doctor"]["missing"] = [c["name"] for c in doc.get("commands", [])
                                       if c.get("status") in ("missing", "unknown", "not-in-omarchy", "arch-only")]
             s["static"] = doc.get("verdict", "doctor-failed")
@@ -268,7 +269,7 @@ def category(s, rt):
     if not loaded:
         return "fails-to-load"
     d = s.get("doctor") or {}
-    if d.get("packages") or d.get("pythonPackages") or d.get("options"):
+    if d.get("packages") or d.get("pythonPackages") or d.get("options") or d.get("qmlModules"):
         return "works-with-packages"
     return "works-as-is"
 

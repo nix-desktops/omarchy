@@ -6,7 +6,7 @@
 #   quickshell   the shell's Quickshell: the QML modules it can import
 #   qmlModules   more QML modules on the shell's QML_IMPORT_PATH
 #                (omarchy.qmlModules)
-{ lib, runCommand, writeTextFile, writeText, bash, python3, python3Packages, callPackage
+{ lib, pkgs, runCommand, writeTextFile, writeText, bash, python3, python3Packages, callPackage
 , quickshell, qmlModules ? [ ] }:
 
 let
@@ -27,6 +27,13 @@ let
   '';
 
   pyPackages = writeText "python3-packages" (lib.concatStringsSep "\n" (builtins.attrNames python3Packages) + "\n");
+
+  # nixpkgs' attribute names (top level, and the package sets Arch names
+  # map into), to check the packages named for a plugin's Arch ones.
+  nixAttrs = writeText "nixpkgs-attrs" (lib.concatStringsSep "\n" (
+    builtins.attrNames pkgs
+    ++ lib.concatMap (set: map (n: "${set}.${n}") (builtins.attrNames pkgs.${set}))
+      [ "kdePackages" "libsForQt5" "qt6Packages" "gst_all_1" "nerd-fonts" ]) + "\n");
 in
 writeTextFile {
   name = "omarchy-plugin-doctor";
@@ -42,9 +49,11 @@ writeTextFile {
     export OMARCHY_PROGRAMS_DB=''${OMARCHY_PROGRAMS_DB-${programsDb}/programs.sqlite}
     export OMARCHY_QML_MODULES=''${OMARCHY_QML_MODULES-${qmlList}}
     export OMARCHY_PY_PACKAGES=''${OMARCHY_PY_PACKAGES-${pyPackages}}
+    export OMARCHY_NIX_ATTRS=''${OMARCHY_NIX_ATTRS-${nixAttrs}}
+    export OMARCHY_ARCH_PACKAGES=''${OMARCHY_ARCH_PACKAGES-${../data/arch-packages.json}}
     exec ${python3}/bin/python3 ${../bin/omarchy-plugin-doctor.py} "$@"
   '';
-  passthru = { inherit programsDb qmlList; };
+  passthru = { inherit programsDb qmlList nixAttrs; };
   meta = {
     description = "Checks what an Omarchy shell plugin needs on NixOS";
     mainProgram = "omarchy-plugin-doctor";

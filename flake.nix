@@ -145,6 +145,11 @@
           quickshell = (import inputs.nixpkgs-unstable { inherit (pkgs.stdenv.hostPlatform) system; }).quickshell;
           qmlModules = with (import inputs.nixpkgs-unstable { inherit (pkgs.stdenv.hostPlatform) system; }).kdePackages; [ qt5compat qtmultimedia ];
         };
+        # pacman/expac/vercmp answering package queries from the NixOS
+        # system (omarchy.pacmanShim.enable).
+        pacman-shim = pkgs.callPackage ./pkgs/pacman-shim {
+          omarchyVersion = pkgs.lib.removeSuffix "\n" (builtins.readFile (inputs.omarchy + "/version"));
+        };
       } // (import ./pkgs/tools { inherit pkgs inputs; }) // {
         # Omarchy's default keybinds as data (keybinds.json).
         keybinds = pkgs.callPackage ./pkgs/keybinds { src = inputs.omarchy; };

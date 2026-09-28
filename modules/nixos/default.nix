@@ -371,6 +371,20 @@ in
       '';
     };
 
+    pacmanShim.enable = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        A `pacman` (with `expac` and `vercmp`) for every user in
+        `omarchy.users` that answers the package queries shell plugins and
+        upstream's menu make (`pacman -Q`, `-Qq`, `-Qi`, `-Qo`, …) from the
+        NixOS system, by Arch name; installs and updates fail with what to
+        add to the configuration instead. Passed to their Home Manager
+        `omarchy.pacmanShim.enable`; /usr/bin/pacman resolves to it through
+        envfs.
+      '';
+    };
+
     plugins = mkOption {
       type = types.attrsOf (import ../plugin-options.nix { inherit lib; });
       default = { };
@@ -619,6 +633,7 @@ in
         # Compositor plugins are built against the Hyprland the system runs.
         hyprland.package = mkDefault config.programs.hyprland.package;
         shell = mkDefault cfg.shell;
+        pacmanShim.enable = mkDefault cfg.pacmanShim.enable;
         stateDir = mkDefault cfg.stateDir;
         branding.name = mkDefault cfg.branding.name;
         # The keyboard layout the system was set up with.

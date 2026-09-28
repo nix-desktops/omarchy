@@ -97,6 +97,10 @@ pkgs/plugins/           the registry of packaged community plugins, one <manifes
                         legacyPackages.<system>.plugins.<id>, omarchy.plugins.<id>.enable
 pkgs/plugins-shell-json.py  declared plugins into shell.json (package defaults; once in the user's)
 pkgs/plugin-doctor.nix, bin/omarchy-plugin-doctor.py  `omarchy plugin doctor` (packages.plugin-doctor)
+pkgs/pacman-shim/       pacman/expac/vercmp answering package queries from the NixOS system
+                        (pacman.py; packages.pacman-shim; modules/home/pacman-shim.nix,
+                        omarchy.pacmanShim.enable)
+data/arch-packages.json Arch/AUR name → nixpkgs attribute (the shim, omarchy-pkg-attr, the doctor)
 pkgs/programs-db.nix    nixpkgs' programs.sqlite (command → package), from the 26.05 channel
 scripts/plugin-survey/  the community-plugin survey (survey.py, vm.nix, runtime.py, README.md)
 lib/theme.nix           theme registry: 22 built-in + pinned community themes; colors.toml /
@@ -582,7 +586,131 @@ enable/disable/clone/list/validate`, Setup > Plugins; manual
   (the plugin's `packages = [ pkgs.noto-fonts ]` would do, the link includes
   the user's fonts); agents-usage's remaining error is its own (assets/*.png
   that are .svg in the repo).
-- **Unsolved:** pacman/yay/paru plugins (update checkers, package menus);
+- **The pacman shim (2026-09-28).** 263 plugins were "Arch-only"; the
+  hand review (survey state `review/arch-only.*`) found most only *ask*
+  pacman what's installed, and that upstream's own menu does too:
+  MenuModel.js `guardHelpers()` shadows `omarchy-pkg-present`/`-missing`
+  inside the guard batch with a set built from `pacman -Qq` + the Provides
+  of `LC_ALL=C pacman -Qi` (and `pacman -Q "pkg>=ver"`), so **without a
+  pacman every guarded row of upstream's menu, and of the 35 menu/launcher
+  plugins carrying the same code, looked uninstalled** (Remove > Browser
+  empty with Firefox installed; checked by screenshot in VMs, upstream's
+  menu and the azterisk.menu fork, shim on vs off). `omarchy.pacmanShim.enable`
+  (HM, and NixOS passing it to `omarchy.users`; default on) installs
+  `pkgs/pacman-shim` (low priority) in the user's profile: on the shell's
+  PATH and at /usr/bin/pacman through envfs.
+  - **Answers:** `-Q[q] [pkg…]` (exit status per package, pacman's
+    "error: package 'x' was not found"), `-Qi` (pacman's exact field order
+    and 16-column labels; Name, Version, Provides, URL, Description,
+    Licenses, Installed Size, Install Reason filled, the rest "None"),
+    versioned `-Q "pkg>=1.2"` (libalpm's vercmp, pkgrel ignored when the
+    constraint has none), `-Qe/-Qd/-Qm/-Qn/-Qt` (explicit = the profiles'
+    direct contents, deps = the rest of the closure, foreign and orphans =
+    none, and like pacman an empty filter fails), `-Qo[q] <path|cmd>` (the
+    store path's package), `-Ql[q]` (the store paths' files), `-Qs`, `-Qg`,
+    `-T`; `expac -Q` (%n %v %d %u %m %l %b %a %r %p %w %P %L, -H, -l, -d,
+    `-` for stdin) and `vercmp`. Refused with status 1 and a message:
+    `-S`/`-U` ("pacman on NixOS only answers queries; add <attr> to your
+    configuration (omarchy.plugins.<id>.packages or
+    environment.systemPackages)", the Arch names mapped, the plugin id
+    taken from the caller's cwd/cmdline), `-R` (remove … from), `-Sy[u]`
+    and `-Qu` (update by rebuilding: omarchy update), `-Ss/-Sl/-F` and
+    `expac -S` (search nixpkgs), `-Si` (add, plus search.nixos.org), `-D`,
+    `-Qp/-Qk/-Qc`. Not provided: checkupdates, yay/paru, paccache.
+  - **Installed** = `/run/current-system/sw`, `/etc/profiles/per-user/$USER`,
+    `~/.nix-profile` (their direct references: explicit) plus
+    `nix-store -qR /run/current-system` (dependencies), names and versions
+    parsed from store path names like `builtins.parseDrvName` (outputs
+    -bin/-dev/-lib/…/-env stripped; one version per name: explicit, then a
+    plain version, then the newest; versions get "-" → "." and a "-1"
+    pkgrel). Description/URL/licenses of the declared packages (home.packages
+    + the system's environment.systemPackages) come from
+    `~/.local/share/omarchy-pacman/declared.json`, written by the module.
+    `omarchy` is always installed with upstream's version (its `version`
+    file, 4.0.0.alpha → `omarchy 4.0.0.alpha-1`).
+  - **Names:** every package also answers to (and `-Qi` Provides, `-Qq`
+    lists) its Arch names: `data/arch-packages.json` (Arch/AUR → nixpkgs
+    attribute, ~150 entries: upstream's menu names like brave-bin,
+    visual-studio-code-bin, sublime-text-4, 1password, the old
+    omarchy-pkg-attr list, the review's packages; null = no counterpart),
+    resolved at build time to each attribute's pname (store names are
+    pnames: _1password-gui → 1password) and the attribute names themselves
+    (so lib/menu.nix's `omarchy-pkg-present vscode` works too); python3.x-foo
+    → python-foo/python3-foo; qtfoo 6.x → qt6-foo (qt5compat → qt6-5compat);
+    a -bin/-git/-appimage/-nightly suffix dropped; the commands in explicit
+    packages' bin/ (Provides only: `-Q rg` finds ripgrep, as pacman finds
+    gvim for vim); finally a command of that name on PATH.
+  - **Fast:** the index is cached in `~/.cache/omarchy/pacman/index-<key>.json`,
+    keyed by the profiles' and system's store paths (and the map, meta and
+    version), rebuilt only when one changes (~0.5 s on the author's 3,300-path
+    system; old ones deleted). Cached: `pacman -Q x` ~45 ms, `-Qi` of
+    everything ~90 ms, the whole guard prelude ~0.2 s. Python run with -I -S.
+    `nix-store` from PATH or /run/current-system/sw/bin; without a store DB
+    (the check) the profiles' links are read instead.
+  - `omarchy-pkg-present` (the flake's) asks the shim too (declared
+    packages anywhere in the config count), after apps.json and before
+    `command -v`; `omarchy-pkg-attr` reads data/arch-packages.json plus the
+    same rules instead of its own case list. Fixed on the way: the
+    commands' `OMARCHY_ARCH_PACKAGES`/`OMARCHY_COMMUNITY_THEMES` are
+    interpolated (`"${../../data/x.json}"`): a bare flake path in
+    writeShellApplication's runtimeEnv is the source's store path without
+    a reference, so it was missing on machines (and in VMs) that don't
+    hold the flake source; pkg-attr no longer dies when the file is missing.
+  - **Tests:** checks.pacman-shim (tests/pacman-shim/test.sh, 104 cases in
+    the sandbox over a stand-in system/profile/closure: every query form
+    with the plugin line it's quoted from, upstream's guardHelpers()
+    extracted from the pinned MenuModel.js with node, pacman's vercmp cases,
+    refusals, omarchy-pkg-present); checks.plugins asks /usr/bin/pacman as
+    the user.
+  - **Survey of the 80 "shim"/"mixed" plugins** (state
+    /tmp/claude-1000/plugin-survey-pacman, with the doctor below): 38 work
+    as is, 23 with packages (all 61 were Arch-only), 8 native build, 7 still
+    Arch-only (their update checkers/pacman.log/-Si parts: clippy,
+    omcontrol, icons, nordstart, cockpit, omagotchi, tabarchy; all but
+    omagotchi load), 4 fail to load on their own errors (omagoku and
+    lock-explorer images, marquee's Style.radius, notchbar). 74 of 80
+    load. Survey detail: a batch VM with `displaylink` (requireFile, named
+    for prompter's install button) fails to build; the harness falls back
+    to no packages, so that batch was rerun without it.
+- **Doctor fixes (2026-09-28)** (bin/omarchy-plugin-doctor.py, checks.plugin-doctor
+  now runs tests/plugin-doctor's fixtures):
+  - Only executed package-manager calls are Arch use: comments,
+    docstrings, here-docs, messages (echo/printf/print/notify/label/"install
+    it with" …), bare words (a game's pacman, asusctl's `aura`, regex
+    alternations, case labels, `command -v pacman`) don't count;
+    pacman/yay/paru/aura need an operation flag.
+  - Queries (`pacman -Q*` but -Qu/-Qp, -T, expac without -S, vercmp) are ok
+    with the shim (detected as `pacman` resolving to omarchy-pacman-shim, or
+    `--assume-pacman-shim`, which the survey passes), else Arch-only with
+    "turn on omarchy.pacmanShim.enable". Installs (`pacman/yay/paru -S`,
+    `omarchy-pkg-add`, …) and hints name nixpkgs packages for the Arch names
+    (`archPackages`; OMARCHY_ARCH_PACKAGES + the rules, checked against
+    OMARCHY_NIX_ATTRS, a build-time list of attribute names) → needs-packages.
+    makepkg is a native build. Updates, -Si/-Ss, -U, pacman.log, the local
+    DB stay Arch-only.
+  - Commands: any shebang file (#!/usr/bin/ruby, node helpers without an
+    extension); `command -v a b` probes are optional unless followed by
+    `|| exit/die`; shell functions defined anywhere in the plugin are never
+    commands; lua/luac → lua5_4; no English stopwords or language package
+    sets (haskellPackages.only) for words from shell text; services for
+    ivpn, zerotierone, kdeconnect, steam.
+  - QML: a missing module names its Qt package and prints the
+    `omarchy.qmlModules` line (flag needs-qml-modules → needs-packages).
+  - Native builds: dev folders, a setup.py that isn't a build, ELF-less
+    "executables", build commands in comments/messages, committed bundles
+    (dist/, node_modules, *.min.js) and build files nothing references no
+    longer count; a build counts when the running code names its product or
+    a helper it calls is missing.
+  - Over all 3,653 clones (`cmpdoc2.py` in the survey state): 413 changed;
+    arch-only 267 → 40, native-build 208 → 191, ok 2,400 → 2,484,
+    needs-packages 589 → 737, incomplete 189 → 201. Against the hand
+    reviews: of the Arch-only review, 13/14 package-manager plugins stay
+    Arch-only, dep-check 61/62 and hint-only 106/107 no longer are; of the
+    native-build review, 34/36 false positives cleared, needs-helper
+    77/79, prebuilt 27/27 and compiled-QML 6/6 kept (python-deps 19/21,
+    optional-helper 19/24).
+- **Unsolved:** pacman/yay/paru plugins that update, install or search
+  (update checkers, package menus, pacman.log readers);
   native builds not in the registry yet (C/C++/Rust helpers, compiled QML plugins, `npm install`,
   prebuilt binaries); commands nixpkgs lacks (kefctl, voxtype-audio-bridge,
   herdr from nixpkgs, …); fixed paths beyond /usr/bin, /bin,

@@ -14,7 +14,10 @@
 #             agents and tools on
 #   host      the host template (examples/host) evaluates and its system
 #             builds, with a stand-in hardware config
-#   plugin-doctor  `omarchy plugin doctor` builds (its command database)
+#   plugin-doctor  `omarchy plugin doctor` builds (its command database) and
+#             gets tests/plugin-doctor's small plugins right
+#   pacman-shim  the pacman shim answers the query forms plugins and
+#             upstream's menu guards run (tests/pacman-shim/test.sh)
 #   catalog-plugins  lib.catalog's shell plugins fetch and validate
 #   plugins-shell-json  declared plugins switched on/off in shell.json
 #   plugin-registry  every packaged plugin (pkgs/plugins) declared by id in
@@ -127,7 +130,68 @@ in
 
   themes = home.config.omarchy.themes;
 
-  plugin-doctor = self.packages.${system}.plugin-doctor;
+  # The doctor builds (its command database) and judges small plugins
+  # right (tests/plugin-doctor: hints vs calls, pacman queries, Arch names,
+  # commands, native-build false positives).
+  plugin-doctor = pkgs.runCommand "omarchy-plugin-doctor-check" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    bash ${./plugin-doctor/fixtures.sh} fixtures
+    printf '%s\n' python3 bash sh cp dirname >available
+    python3 ${./plugin-doctor/check.py} ${self.packages.${system}.plugin-doctor}/bin/omarchy-plugin-doctor \
+      fixtures available
+    touch $out
+  '';
+
+  # The pacman shim against the query forms plugins run (tests/pacman-shim).
+  pacman-shim = let
+    inherit (pkgs) lib;
+    shim = self.packages.${system}.pacman-shim;
+    systemEnv = pkgs.buildEnv {
+      name = "system-path";
+      paths = with pkgs; [ hello jq ripgrep (python3.withPackages (ps: [ ps.requests ])) kdePackages.qtbase ];
+    };
+    userEnv = pkgs.buildEnv { name = "user-environment"; paths = [ pkgs.cowsay ]; };
+    closure = pkgs.closureInfo { rootPaths = [ systemEnv userEnv ]; };
+    meta = pkgs.writeText "declared.json" (builtins.toJSON [{
+      name = builtins.unsafeDiscardStringContext pkgs.jq.name;
+      pname = "jq";
+      inherit (pkgs.jq.meta) description homepage;
+      license = [ "MIT" ];
+    }]);
+    # Upstream's guard prelude (MenuModel.js guardHelpers()), as the menu
+    # and its forks run it.
+    guard = pkgs.runCommand "guard-helpers.sh" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+      node -e '
+        const src = require("fs").readFileSync(process.argv[1], "utf8");
+        const m = src.match(/function guardHelpers\(\) \{[\s\S]*?\n\}/);
+        if (!m) process.exit(1);
+        eval(m[0]);
+        process.stdout.write(guardHelpers());
+      ' ${inputs.omarchy}/shell/plugins/menu/MenuModel.js >$out
+      grep -q "pacman -Qq" $out
+    '';
+  in pkgs.runCommand "omarchy-pacman-shim-check" {
+    nativeBuildInputs = [ shim systemEnv userEnv ] ++ (with pkgs; [ bash coreutils gawk gnugrep gnused findutils jq ]);
+    OMARCHY_PACMAN_PROFILES = "${systemEnv}:${userEnv}";
+    OMARCHY_PACMAN_SYSTEM = systemEnv;
+    OMARCHY_PACMAN_CLOSURE = "${closure}/store-paths";
+    OMARCHY_PACMAN_META = meta;
+    OMARCHY_ARCH_PACKAGES = ../data/arch-packages.json;
+    OMARCHY_VERSION = lib.removeSuffix "\n" (builtins.readFile (inputs.omarchy + "/version"));
+    JQ_DESC = pkgs.jq.meta.description;
+    JQ_URL = pkgs.jq.meta.homepage;
+    GUARD = guard;
+    PKG_PRESENT = ../bin/omarchy-pkg-present.sh;
+  } ''
+    export HOME=$TMPDIR/home OMARCHY_PACMAN_CACHE=$TMPDIR/cache
+    mkdir -p $HOME $TMPDIR/bin
+    printf '#!${pkgs.bash}/bin/bash\nexec ${pkgs.bash}/bin/bash ${../bin/omarchy-pkg-attr.sh} "$@"\n' >$TMPDIR/bin/omarchy-pkg-attr
+    chmod +x $TMPDIR/bin/omarchy-pkg-attr
+    export PATH=$TMPDIR/bin:$PATH
+    bash ${./pacman-shim/test.sh}
+    touch $out
+  '';
 
   catalog = pkgs.runCommand "omarchy-catalog-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
     upstream=$(jq -c '[.[] | select(.layer != "core") | .keys] | sort' ${self.packages.${system}.keybinds}/keybinds.json)
@@ -288,6 +352,16 @@ in
       # Omarchy's files at Arch's OMARCHY_PATH.
       machine.succeed("test -f /usr/share/omarchy/shell/shell.qml && test -f /usr/share/omarchy/config/omarchy/shell.json")
       machine.succeed("test -e /usr/share/zoneinfo/Europe/Amsterdam")
+      # The pacman shim (omarchy.pacmanShim): /usr/bin/pacman answers from
+      # the system, by Arch name; installs fail saying what to declare.
+      run("/usr/bin/pacman -Q omarchy bash jq qt6-base")
+      run("/usr/bin/pacman -Qqe | grep -qx hyprland")
+      run("LC_ALL=C /usr/bin/pacman -Qi quickshell | grep -q ^Version")
+      run("pacman -Qqo \"$(command -v jq)\" | grep -qx jq")
+      run("omarchy-pkg-present hyprland-bin jq")
+      machine.fail(f"{user} 'pacman -Q no-such-package'")
+      out = machine.fail(f"{user} 'pacman -S --noconfirm foo 2>&1'")
+      assert "only answers queries; add foo" in out, out
 
       # ---- A declared plugin (omarchy.plugins, from the NixOS module) ----
       declared = "io.github.proxy1967.logi-battery"
@@ -330,7 +404,8 @@ in
       assert "setxkbmap" in out and "nixpkgs: setxkbmap" in out, out
       assert 'omarchy.plugins."io.github.sanjuanjor.typist".packages = with pkgs; [ setxkbmap ];' in out, out
       out = run("omarchy plugin doctor /etc/plugin-fixtures/kefctl 2>&1")
-      assert "Arch-only" in out and "yay" in out and "kefctl" in out, out
+      # Its `yay -S kefctl` is a hint in a message: named, not Arch-only.
+      assert "Arch-only" not in out and "kefctl" in out and "no nixpkgs package" in out, out
       report = json.loads(run("omarchy plugin doctor io.github.mohuddle.myjournal --json"))
       assert report["verdict"] == "ok", report
       assert any(c["name"] == "python3" and c["status"] == "ok" for c in report["commands"]), report["commands"]
