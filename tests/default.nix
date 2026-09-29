@@ -375,7 +375,7 @@ in
       user = "su - omarchy -c"
       env = "XDG_RUNTIME_DIR=/run/user/1000 HYPRLAND_INSTANCE_SIGNATURE=$(ls /run/user/1000/hypr | head -1)"
       machine.wait_for_unit("home-manager-omarchy.service")
-      machine.wait_until_succeeds("systemctl --user -M omarchy@ is-active omarchy-shell.service", timeout=180)
+      machine.wait_until_succeeds("systemctl --user -M omarchy@ is-active omarchy-shell.service", timeout=420)
       machine.wait_until_succeeds(f"{user} '{env} hyprctl version'", timeout=120)
       # The VM draws in software: reloading plugins can keep the shell busy
       # past omarchy-shell's 2 s IPC timeout.
@@ -561,6 +561,12 @@ in
       start_all()
       machine.wait_for_unit("multi-user.target")
       machine.wait_for_unit("home-manager-omarchy.service")
+
+      # envfs on /usr/bin and /bin on both machines, even where its mount
+      # raced at boot (the ecosystem machine's did, every time).
+      for m in (machine, ecosystem):
+          m.wait_for_unit("omarchy-envfs-check.service")
+          m.succeed("findmnt -n /usr/bin | grep -q envfs && findmnt -n /bin && test -x /usr/bin/env")
 
       # Omarchy's login screen.
       machine.wait_for_unit("display-manager.service")

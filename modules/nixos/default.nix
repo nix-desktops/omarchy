@@ -601,6 +601,33 @@ in
         [ -e "$out/''${f##*/}" ] || ln -s "$f" "$out/''${f##*/}"
       done
     '';
+    # envfs's mount helper can return before its FUSE mount shows up, and
+    # systemd then fails usr-bin.mount ("Mount process finished, but there
+    # is no mount") and /bin with it (seen at every boot of a slower VM).
+    # Once the file systems are up, remount whatever isn't there.
+    systemd.services.omarchy-envfs-check = lib.mkIf (cfg.envfs.enable && config.services.envfs.enable) {
+      description = "Make sure envfs is mounted on /usr/bin and /bin";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "local-fs.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      path = [ pkgs.util-linux config.systemd.package ];
+      script = ''
+        for try in 1 2 3 4 5; do
+          findmnt -n /usr/bin | grep -q envfs && findmnt -n /bin > /dev/null && exit 0
+          if ! findmnt -n /usr/bin | grep -q envfs; then
+            systemctl reset-failed usr-bin.mount bin.mount || true
+            systemctl restart usr-bin.mount || true
+          fi
+          findmnt -n /bin > /dev/null || systemctl restart bin.mount || true
+          sleep 1
+        done
+        echo "envfs is not mounted on /usr/bin and /bin" >&2
+        exit 1
+      '';
+    };
     # The accessibility bus (AT-SPI), as on Arch where at-spi2-core comes
     # with GTK and its D-Bus activation is always there: plugins that read
     # the focused text or caret through it (Dopamine Text), screen readers.
