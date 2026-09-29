@@ -21,6 +21,9 @@
 #   binds               upstream key combos that belong to it
 #   launchers, icons    desktop files and icons from upstream's applications/
 #   command             (agents) the command it runs as
+#   url, rev, hash      (plugins) the plugin's git repository, pinned, as
+#                       `omarchy.plugins.<id>` takes it; `attrs` are its
+#                       `packages`, `kind` its manifest's kinds
 #
 # The keybinds are upstream's, from `packages.<system>.keybinds`;
 # `checks.catalog` fails when upstream adds an app or web-app bind that no
@@ -51,6 +54,7 @@ in
     development = "ecosystem";
     agents = "picked";
     tools = "picked";
+    plugins = "picked";
   };
 
   # ------------------------------------------------ Default apps (default)
@@ -216,6 +220,39 @@ in
     agy = entry { name = "Antigravity"; attrs = [ "unstable.antigravity-cli" ]; command = "agy"; };
     copilot = entry { name = "GitHub Copilot"; attrs = [ "github-copilot-cli" ]; command = "copilot"; };
     cursor-agent = entry { name = "Cursor CLI"; attrs = [ "cursor-cli" ]; command = "cursor-agent"; };
+  };
+
+  # ------------------------------------------------ Shell plugins (picked)
+  # Community plugins for Omarchy's shell (omarchyplugins.com), pinned, that
+  # work here (the plugins VM test adds or declares each). An installer
+  # writes the ones picked as `omarchy.plugins.<id> = { url; rev; hash;
+  # packages = <attrs>; }`. Anything else is `omarchy plugin add <url>`
+  # away; `omarchy plugin doctor` says what one needs.
+  plugins = {
+    "io.github.rookepoole.moon-arc" = entry {
+      name = "Moon Arc";
+      description = "Lunar phase and illumination arc on the bar";
+      url = "https://github.com/rookepoole/omarchy-moon-arc";
+      rev = "5efc8d104debdeb922dbc2760aecbc75c565f311";
+      hash = "sha256-zYPStMRggvih82neDJ1sTeJ2l1nHUzTu7dMUUM8zmBg=";
+      kind = [ "bar-widget" ];
+    };
+    "io.github.mohuddle.myjournal" = entry {
+      name = "My Journal";
+      description = "Dated notes and checkable todos from the bar, searchable, saved as JSON";
+      url = "https://github.com/mohuddle/omarchy-myjournal";
+      rev = "f0fb6420c9ea3f437bce5e19284b95147bba0d0e";
+      hash = "sha256-/uuExZtmCd92gFiTnDtCqVrJEvD5eWvcCNywrglbIAg=";
+      kind = [ "bar-widget" ];
+    };
+    "io.github.proxy1967.logi-battery" = entry {
+      name = "Mouse battery";
+      description = "Battery percentage of a wireless mouse (HID++ or kernel-reported)";
+      url = "https://github.com/Proxy1967/omarchy-logi-battery";
+      rev = "751af1f36c91a748f7ab5b4ef7932e559f797c9f";
+      hash = "sha256-a5yxSbxK849IS8kGIH1Kwc5pq1DF9yPnTnl8IwKUY3M=";
+      kind = [ "bar-widget" ];
+    };
   };
 
   # ------------------------------------------- CLIs next to the agents (picked)

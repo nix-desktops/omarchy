@@ -160,6 +160,108 @@ The state the menu edits lives in your config (`stateDir`): `apps.json`
 default), `branding.json` (the name, when it isn't Omarchy). Commit it with
 the rest of your config.
 
+## Shell plugins
+
+Omarchy's shell plugins work as [upstream's manual](https://github.com/basecamp/omarchy/blob/quattro/manual/32-shell-plugins.md)
+describes: `omarchy plugin add <git-url> --enable`, `update`, `remove`,
+`enable`, `disable`, `clone`, `list`, and Setup > Plugins in the menu. They
+live in `~/.config/omarchy/plugins`, which is yours.
+
+Most community plugins ([omarchyplugins.com](https://omarchyplugins.com))
+are written for Arch. The NixOS module meets them halfway, all on by
+default:
+
+| Option (NixOS) | |
+| --- | --- |
+| `omarchy.envfs.enable` | NixOS's envfs on `/usr/bin` and `/bin`: `/usr/bin/python3`, `#!/usr/bin/bash`, `/usr/bin/omarchy-*` resolve to the command on the calling process's PATH (for plugins: the shell's, which has your profile). A command that isn't on that PATH stays missing. |
+| `omarchy.usrShare.enable` | `/usr/share/omarchy` (Omarchy's files, where Arch has them), `/usr/share/zoneinfo`, `/usr/share/fonts` (the system's and your fonts, Arch's layout) and `/usr/share/pixmaps/omarchy.png` |
+| `omarchy.nixLd.enable` | nix-ld, with the libraries plugins' prebuilt helpers link (libevdev, PipeWire, PulseAudio, D-Bus, curl, OpenSSL, GLib, Wayland, …): binaries a plugin ships or downloads run |
+| `omarchy.pacmanShim.enable` | A `pacman` (with `expac` and `vercmp`) that answers package *queries* from the NixOS system: `pacman -Q[q] [pkg…]`, `-Qi` (pacman's format, Provides included), `-Q "pkg>=1.2"`, `-Qe/-Qd/-Qm/-Qn`, `-Qo <file>`, `-Ql`, `-Qs`, `-T`, `expac -Q`. Plugins ask by Arch name: `python-foo`, `qt6-base`, `brave-bin`, `omarchy` (upstream's version) and the other names in `data/arch-packages.json` map to what's installed. Installs, removals and updates (`-S`, `-R`, `-U`, `-Syu`, `-Si`, `-Ss`, `-Qu`) fail with what to add to your configuration instead. Also Home Manager's `omarchy.pacmanShim.enable`. |
+
+and the shell can import `Qt5Compat.GraphicalEffects`, `QtMultimedia`,
+`QtWebSockets`, `QtPositioning`, `Qt.labs.lottieqt` and `QtQuick3D`
+(`omarchy.qmlModules` in Home Manager; `omarchy.qtWebEngine.enable` adds
+QtWebEngine, ~600 MB). `omarchy.usrShare.voxtype` links voxtype's
+Quickshell module at `/usr/share/voxtype/quickshell` for voxtype plugins.
+
+`omarchy plugin doctor [id|path]` reads a plugin's files (it runs nothing)
+and says what it needs here: the commands it runs that aren't on the shell's
+PATH and the nixpkgs package for each (from nixpkgs' command-not-found
+database, offline), the nixpkgs packages for the Arch packages it installs
+or tells you to install, Python modules, QML modules the shell lacks (with
+the `omarchy.qmlModules` line), and what won't work at all (pacman/AUR
+updates and installs at runtime, native builds). Plugins that only ask
+pacman what's installed are fine with the pacman shim:
+
+```
+$ omarchy plugin doctor io.github.sanjuanjor.typist
+Typist (io.github.sanjuanjor.typist)   /home/me/.config/omarchy/plugins/io.github.sanjuanjor.typist
+  needs packages
+  Commands:
+    setxkbmap                missing → nixpkgs: setxkbmap   typist_worker.py:45
+  Add to your NixOS configuration (then rebuild):
+    omarchy.plugins."io.github.sanjuanjor.typist".packages = with pkgs; [ setxkbmap ];
+```
+
+`omarchy.plugins` (NixOS or Home Manager) declares plugins, pinned, or only
+the packages one added by hand needs:
+
+```nix
+omarchy.plugins = {
+  "io.github.rookepoole.moon-arc" = {
+    url = "https://github.com/rookepoole/omarchy-moon-arc";
+    rev = "5efc8d104debdeb922dbc2760aecbc75c565f311";
+    hash = "sha256-zYPStMRggvih82neDJ1sTeJ2l1nHUzTu7dMUUM8zmBg=";
+    section = "right";          # where on the bar, the first time
+  };
+  # src = a flake input (flake = false), fetchFromGitHub, a path, …
+  # Added with `omarchy plugin add`: just what it runs.
+  "io.github.sanjuanjor.typist".packages = [ pkgs.setxkbmap ];
+};
+```
+
+Plugins that need something built (a Rust or Go helper from their own
+source, a Python env where they expect a venv, a Hyprland compositor
+plugin) are packaged in this flake's registry
+([pkgs/plugins](pkgs/plugins/README.md)); declare one by id and it comes
+with its helpers, links and packages:
+
+```nix
+omarchy.plugins."io.github.bitshiftxr.atrium".enable = true;
+```
+
+`omarchy plugin add` of one of those says so. A declaration can also carry
+its own `helpers` (Nix-built programs copied into the plugin's tree),
+`home` (links such as `~/.local/bin/x`), `patches`/`postPatch`,
+`hyprlandPlugins` and `qmlModules`; `registry = false` keeps a plugin
+added by hand.
+
+A declared plugin is checked with upstream's validator at build time and
+linked into `~/.config/omarchy/plugins/<id>` (`omarchy plugin update`
+leaves it alone). It's switched on the way upstream records it in
+`~/.config/omarchy/shell.json`, once: switch it off or move it from the
+shell and that sticks; drop it from the config and it's switched off.
+`lib.mkPlugin { pkgs; id; src; helpers; patches; postPatch; }` builds one
+for other uses, `lib.plugins` lists the registry, and `lib.catalog.plugins`
+lists a few that work as is.
+
+Upstream's own menu needs the pacman shim too: its install and remove
+guards read `pacman -Qq` and `pacman -Qi` (MenuModel.js), and so do the
+three dozen menu and launcher plugins forked from it; with the shim they see
+what's installed.
+
+What doesn't work, and can't from here: plugins that install packages or
+check for updates with pacman/yay/paru (`checkupdates`, `yay -Qua`,
+`paccache`, the sync database), ones that need a native build (C++/Rust
+helpers, compiled QML plugins) or `npm install` and aren't in the registry
+yet, commands nixpkgs doesn't have, and fixed paths other than the above
+(`/usr/lib/…`, `/usr/share/icons/…`, `/opt/…`). A process that clears its
+environment and runs a bare `/usr/bin/<cmd>` still finds it (envfs falls
+back to the process's original PATH, and serves coreutils, setsid, bash
+and sh to processes with none); other commands started without them on
+the PATH do not.
+`scripts/plugin-survey` tests the whole directory; see its README.
+
 ## Channels
 
 The branch you follow is the Omarchy release channel, like Omarchy's own:
