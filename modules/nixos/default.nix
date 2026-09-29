@@ -122,6 +122,22 @@ let
     || config.services.displayManager.gdm.enable or false
     || config.services.xserver.displayManager.lightdm.enable;
 
+  # /usr/share/omarchy: the first desktop user's package (it carries their
+  # menu layer and branding), else upstream's as this flake packages it.
+  firstUser = lib.findFirst (u: cfg.homeManager.enable && hasHomeManager
+    && config.home-manager.users ? ${u} && config.home-manager.users.${u}.omarchy.enable or false) null cfg.users;
+  usrShareOmarchy = if firstUser != null then config.home-manager.users.${firstUser}.omarchy.package
+    else pkgs.callPackage ../../pkgs/omarchy.nix { src = inputs.omarchy; };
+
+  # /usr/share/fonts as on Arch (share/fonts/<family>/…): the system's
+  # fonts and the first desktop user's (Omarchy's come with Home Manager).
+  usrShareFonts = pkgs.buildEnv {
+    name = "omarchy-usr-share-fonts";
+    paths = config.fonts.packages
+      ++ lib.optional (firstUser != null) config.home-manager.users.${firstUser}.home.path;
+    pathsToLink = [ "/share/fonts" ];
+  };
+
   # The active theme, for the browser color policy.
   theme = import ../../lib/theme.nix { inherit (inputs) omarchy; inherit (cfg) stateDir; };
 in
@@ -301,6 +317,85 @@ in
       };
     };
 
+    envfs.enable = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        NixOS's envfs (`services.envfs`) on /usr/bin and /bin: a path like
+        /usr/bin/python3 or /usr/bin/omarchy-notification-send resolves to
+        that command on the PATH of the process asking (for the shell's
+        plugins: the omarchy-shell unit's PATH, which has the user's
+        profile), so the shell plugins and scripts written for Arch that
+        run /usr/bin/<cmd> or start with `#!/usr/bin/bash` work. A command
+        that isn't on the caller's PATH stays missing (bash, sh and env are
+        always there). About a third of the community's plugins need this.
+      '';
+    };
+
+    usrShare.enable = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        /usr/share/omarchy (Omarchy's files, OMARCHY_PATH on Arch) and
+        /usr/share/zoneinfo, as links (systemd-tmpfiles), for shell plugins
+        that read them at those paths. /usr/share/omarchy is the first
+        desktop user's Omarchy package (their menu layer and branding).
+      '';
+    };
+
+    usrShare.voxtype = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        /usr/share/voxtype/quickshell: voxtype's shared Quickshell module
+        (from nixos-unstable's voxtype source; nixpkgs doesn't install it),
+        which voxtype plugins (Vox Portrait) import from that fixed path.
+      '';
+    };
+
+    nixLd.enable = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        nix-ld (`programs.nix-ld`), so prebuilt glibc binaries run: the
+        language servers and tools the editor and mise download, and the
+        helpers community shell plugins ship or download (an mruby runtime,
+        a PyInstaller bundle, a Node SEA, release binaries). Besides
+        nix-ld's defaults it offers the libraries those were found to link:
+        libevdev, PipeWire, PulseAudio, D-Bus, curl, OpenSSL, zlib, GLib,
+        libxkbcommon, Wayland, libstdc++/libgcc_s. On by default: this
+        desktop has always enabled nix-ld (for the editor's downloads), the
+        libraries are ones the desktop already has, and a plugin added with
+        `omarchy plugin add` runs unsandboxed in the shell anyway, so
+        loading its binaries opens nothing new.
+      '';
+    };
+
+    pacmanShim.enable = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        A `pacman` (with `expac` and `vercmp`) for every user in
+        `omarchy.users` that answers the package queries shell plugins and
+        upstream's menu make (`pacman -Q`, `-Qq`, `-Qi`, `-Qo`, …) from the
+        NixOS system, by Arch name; installs and updates fail with what to
+        add to the configuration instead. Passed to their Home Manager
+        `omarchy.pacmanShim.enable`; /usr/bin/pacman resolves to it through
+        envfs.
+      '';
+    };
+
+    plugins = mkOption {
+      type = types.attrsOf (import ../plugin-options.nix { inherit lib; });
+      default = { };
+      description = ''
+        Omarchy shell plugins for every user in `omarchy.users` (passed to
+        their Home Manager `omarchy.plugins`): by manifest id, with a
+        source (`src`, or `url` + `rev` + `hash`) to install and switch
+        one on, and `packages` it runs. See the Home Manager option.
+      '';
+    };
+
     plymouth.enable = mkOption {
       type = types.bool;
       default = true;
@@ -438,8 +533,15 @@ in
     };
 
     # Prebuilt binaries the editor and dev tools download (Mason's language
-    # servers, mise), which expect a regular Linux loader.
-    programs.nix-ld.enable = mkDefault true;
+    # servers, mise) and plugins ship, which expect a regular Linux loader
+    # (omarchy.nixLd).
+    programs.nix-ld = lib.mkIf cfg.nixLd.enable {
+      enable = mkDefault true;
+      libraries = options.programs.nix-ld.libraries.default ++ (with pkgs; [
+        stdenv.cc.cc.lib zlib curl openssl dbus glib libevdev pipewire
+        libpulseaudio libxkbcommon wayland
+      ]);
+    };
 
     # plocate's index, refreshed daily.
     services.locate = {
@@ -487,6 +589,37 @@ in
       };
     };
 
+    # Shell plugins written for Arch: /usr/bin/<cmd> and #!/usr/bin/bash
+    # through envfs, Omarchy's files at /usr/share/omarchy.
+    services.envfs.enable = lib.mkIf cfg.envfs.enable (mkDefault true);
+    # The fallback directory serves processes started with no PATH (a
+    # plugin's Process with clearEnvironment execs /usr/bin/setsid,
+    # /usr/bin/mkdir, …): bash, coreutils and setsid besides env and sh.
+    services.envfs.extraFallbackPathCommands = lib.mkIf cfg.envfs.enable ''
+      ln -s ${pkgs.bashInteractive}/bin/bash $out/bash
+      for f in ${pkgs.coreutils}/bin/* ${pkgs.util-linux}/bin/setsid; do
+        [ -e "$out/''${f##*/}" ] || ln -s "$f" "$out/''${f##*/}"
+      done
+    '';
+    # The accessibility bus (AT-SPI), as on Arch where at-spi2-core comes
+    # with GTK and its D-Bus activation is always there: plugins that read
+    # the focused text or caret through it (Dopamine Text), screen readers.
+    # Cheap: the bus starts on demand.
+    services.gnome.at-spi2-core.enable = mkDefault true;
+
+    systemd.tmpfiles.rules = lib.mkIf cfg.usrShare.enable ([
+      "d /usr/share 0755 root root -"
+      "L+ /usr/share/omarchy - - - - ${usrShareOmarchy}/share/omarchy"
+      "L+ /usr/share/zoneinfo - - - - /etc/zoneinfo"
+      "L+ /usr/share/fonts - - - - ${usrShareFonts}/share/fonts"
+      # Omarchy's logo where Arch's omarchy-settings installs it.
+      "d /usr/share/pixmaps 0755 root root -"
+      "L+ /usr/share/pixmaps/omarchy.png - - - - ${usrShareOmarchy}/share/omarchy/icon.png"
+    ] ++ lib.optionals cfg.usrShare.voxtype [
+      "d /usr/share/voxtype 0755 root root -"
+      "L+ /usr/share/voxtype/quickshell - - - - ${unstable.voxtype.src}/quickshell"
+    ]);
+
     assertions = [{
       assertion = cfg.homeManager.enable -> hasHomeManager;
       message = "omarchy.homeManager.enable needs Home Manager's NixOS module (home-manager.nixosModules.home-manager) imported.";
@@ -495,12 +628,31 @@ in
 
   # The desktop for each user, through Home Manager.
   (lib.optionalAttrs hasHomeManager {
+    # Groups and system services the users' declared plugins need (their
+    # `extraGroups`, `services`), from every Home Manager user with the
+    # desktop's module.
+    users.users = lib.mapAttrs (_: hm: {
+      extraGroups = hm.omarchy.internal.pluginExtraGroups or [ ];
+    }) config.home-manager.users;
+    warnings = lib.concatLists (lib.mapAttrsToList (user: hm:
+      lib.concatLists (lib.mapAttrsToList (id: paths: lib.concatMap (path:
+        lib.optional (!(lib.attrByPath (lib.splitString "." path) false config == true))
+          "omarchy.plugins.\"${id}\" (user ${user}) needs `${path} = true;` in the NixOS configuration.")
+        paths) (hm.omarchy.internal.pluginServices or { })))
+      config.home-manager.users);
+
     home-manager.users = lib.mkIf cfg.homeManager.enable (lib.genAttrs cfg.users (_: {
       imports = [ homeManagerModules.default ];
       omarchy = {
         enable = mkDefault true;
         ecosystem.enable = mkDefault cfg.ecosystem.enable;
+        # Only what's set, so a user's own definitions merge with them.
+        plugins = lib.mapAttrs (_: p: lib.filterAttrs (n: v: v != null && v != [ ] && v != { } && v != ""
+          && !(n == "registry" && v)) p) cfg.plugins;
+        # Compositor plugins are built against the Hyprland the system runs.
+        hyprland.package = mkDefault config.programs.hyprland.package;
         shell = mkDefault cfg.shell;
+        pacmanShim.enable = mkDefault cfg.pacmanShim.enable;
         stateDir = mkDefault cfg.stateDir;
         branding.name = mkDefault cfg.branding.name;
         # The keyboard layout the system was set up with.

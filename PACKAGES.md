@@ -130,6 +130,14 @@ yay, pacman-contrib, expac, kernel-modules-hook, fakeroot, ufw + ufw-docker
 (the NixOS firewall instead), tzupdate (`services.automatic-timezoned`),
 wireless-regdb and qemu-user-static-binfmt (NixOS options), inetutils.
 
+## 10. Shell plugins (picked)
+
+Third-party plugins for Omarchy's shell (omarchyplugins.com) aren't
+installed by anything: the user adds them (`omarchy plugin add`, Setup >
+Plugins) or declares them (`omarchy.plugins.<id>`). `lib.catalog.plugins`
+lists a few pinned ones that work here, for an installer to offer; their
+`attrs` are the packages they run.
+
 ## Where the code stands (2026-09-25)
 
 The code matches this file: `lib/catalog.nix` holds every group as data

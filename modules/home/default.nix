@@ -30,6 +30,9 @@ let
   # default/themed/ (shell.toml, kitty.conf, neovim.lua, btop.theme, …)
   # that the theme doesn't ship itself.
   theme = import ../../lib/theme.nix { inherit (inputs) omarchy; inherit (cfg) stateDir; };
+  # QML modules for the shell: omarchy.qmlModules and what declared plugins
+  # add (plugins.nix).
+  qmlModules = cfg.qmlModules ++ cfg.internal.pluginQmlModules;
   # Rendering needs only upstream's renderer; the NixOS command layer
   # (which carries the themes tree in its environment) would be circular.
   omarchyUpstream = pkgs.callPackage ../../pkgs/omarchy.nix { src = inputs.omarchy; };
@@ -91,9 +94,12 @@ let
       OMARCHY_STATE = cfg.stateDirPath;
       OMARCHY_CONFIG = cfg.configDir;
       OMARCHY_DEV_TEMPLATES = devTemplatesDir;
-      OMARCHY_COMMUNITY_THEMES = ../../data/community-themes.json;
+      # Interpolated, so the files are copied with a reference (a bare path
+      # would be the flake source's store path, without its context).
+      OMARCHY_COMMUNITY_THEMES = "${../../data/community-themes.json}";
       OMARCHY_THEMES = themesTree;
       OMARCHY_AGENTS = cfg.catalogFiles.agents;
+      OMARCHY_ARCH_PACKAGES = "${../../data/arch-packages.json}";
     };
     text = builtins.readFile ../../bin/${name + ".sh"};
   };
@@ -121,7 +127,7 @@ let
     (command "omarchy-pkg-remove"             [ pkgs.gum pkgs.jq pkgs.coreutils ])
     (command "omarchy-pkg-present"            [ pkgs.jq ])
     (command "omarchy-pkg-missing"            [ ])
-    (command "omarchy-pkg-attr"               [ ])
+    (command "omarchy-pkg-attr"               [ pkgs.jq ])
     (command "omarchy-pkg-add"                [ ])
     (command "omarchy-pkg-aur-add"            [ ])
     (command "omarchy-pkg-drop"               [ ])
@@ -138,13 +144,20 @@ let
     (command "omarchy-install-docker-dbs"     [ pkgs.jq pkgs.coreutils ])
     (command "omarchy-install-font"           [ pkgs.fontconfig ])
     (command "omarchy-remove-launcher-entry"  [ pkgs.jq pkgs.gnugrep pkgs.coreutils pkgs.desktop-file-utils ])
+    # New: what a shell plugin needs on NixOS (modules/home/plugins.nix).
+    pluginDoctor
   ];
+  pluginDoctor = pkgs.callPackage ../../pkgs/plugin-doctor.nix {
+    inherit quickshell;
+    qmlModules = qmlModules ++ [ tools.owe-lockfeed ];
+  };
   omarchy = pkgs.callPackage ../../pkgs/omarchy.nix {
     src = inputs.omarchy;
     inherit replacements;
     menu = menuOverrides;
     inherit (cfg) terminal browser droppedApps;
     plugins = [ tools.elsewhen ];
+    declaredPlugins = cfg.internal.declaredPlugins;
     branding = if cfg.branding.name == "Omarchy" then null
       else pkgs.callPackage ../../pkgs/branding.nix { inherit (cfg.branding) name; };
   };
@@ -193,7 +206,15 @@ let
     unstable.hyprpicker unstable.hyprsunset unstable.hyprland-preview-share-picker
     # Omarchy's own: screenshots, the screensaver, video wallpapers.
     omasnap tools.ttfx tools.owe
-    gum jq fzf curl socat perl python3 bc file
+    gum jq fzf curl socat perl bc file
+    # Low priority: a python3 with modules (a plugin's `packages`, the
+    # host's own) takes its place instead of colliding.
+    (lib.lowPrio python3)
+    # `omarchy plugin add/update/clone` (git, ripgrep); the CLI setup
+    # usually installs them too.
+    (lib.lowPrio git) (lib.lowPrio ripgrep)
+    # In Omarchy's Arch base; plugins run them (#!/usr/bin/ruby, sqlite3).
+    (lib.lowPrio ruby) (lib.lowPrio sqlite)
     wl-clipboard wtype inotify-tools libnotify desktop-file-utils
     udiskie                     # automount, launched by Omarchy's autostart
     satty grim slurp tesseract zbar
@@ -226,6 +247,8 @@ in
     (import ./apps.nix { inherit inputs; })
     (import ./catalog.nix { inherit inputs; })
     (import ./shell.nix { inherit inputs; })
+    (import ./plugins.nix { inherit inputs; })
+    (import ./pacman-shim.nix { inherit inputs; })
     ./seed.nix
   ];
 
@@ -638,10 +661,14 @@ in
           # Theme backgrounds are mostly WebP; nixpkgs' Quickshell only
           # ships Qt's built-in image formats (the wrapper prepends its own
           # plugin paths, so this one is kept).
-          "QT_PLUGIN_PATH=${unstable.kdePackages.qtimageformats}/lib/qt-6/plugins"
           # OWE's lock-screen feed (Owe.LockFeed), which the lock screen
           # loads when it's there.
-          "QML_IMPORT_PATH=${tools.owe-lockfeed}/lib/qt6/qml"
+          "QML_IMPORT_PATH=${lib.concatStringsSep ":" ([ "${tools.owe-lockfeed}/lib/qt6/qml" ]
+            ++ map (m: "${m}/lib/qt-6/qml") qmlModules)}"
+          # Their plugins (QtMultimedia's FFmpeg backend), after the image
+          # formats.
+          "QT_PLUGIN_PATH=${lib.concatStringsSep ":" ([ "${unstable.kdePackages.qtimageformats}/lib/qt-6/plugins" ]
+            ++ map (m: "${m}/lib/qt-6/plugins") qmlModules)}"
           "PATH=${servicePath}"
         ];
         Restart = "on-failure";
