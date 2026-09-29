@@ -16,6 +16,9 @@ let
     version = "0-unstable-1e014a1";
     inherit src;
     cargoHash = "sha256-Yklvg3it9sYUrv4Wfy44LppnOdTfM4nrXaKYI5Rsr3M=";
+    # Rewrites a file and expects its fingerprint (inode, size, mtime) to
+    # change; on some builders the new file reuses the inode and timestamp.
+    checkFlags = [ "--skip=security::tests::iso_safety" ];
     meta.mainProgram = "oma-dvd";
   };
 in
