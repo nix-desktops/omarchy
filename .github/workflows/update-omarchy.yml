@@ -29,6 +29,8 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    env:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +74,15 @@ jobs:
         with:
           extra_nix_config: |
             system-features = nixos-test benchmark big-parallel kvm
+
+      # The binary cache CI fills: without it this job compiles every
+      # packaged plugin from source and the runner gives out after hours.
+      - name: Cachix
+        if: steps.ref.outputs.ref != '' && env.CACHIX_AUTH_TOKEN != ''
+        uses: cachix/cachix-action@v16
+        with:
+          name: nix-desktops
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Re-lock the omarchy input
         if: steps.ref.outputs.ref != ''
