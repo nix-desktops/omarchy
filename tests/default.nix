@@ -627,7 +627,9 @@ in
       # Capture tools, run in the session's environment as the menu and
       # the keybinds run them. The folders Omarchy saves into exist.
       machine.succeed(f"test -d {home}/Pictures && test -d {home}/Videos && test -d {home}/Downloads")
-      session = env + " WAYLAND_DISPLAY=$(cd /run/user/1000 && ls wayland-? | head -1)"
+      # The shell answers the menu's IPC slowly on a loaded CI runner and
+      # right after a rebuild restarts it: wait longer than its 2 s default.
+      session = env + " WAYLAND_DISPLAY=$(cd /run/user/1000 && ls wayland-? | head -1) OMARCHY_SHELL_IPC_TIMEOUT=20s"
       # Upstream's screenshot command: omasnap on its development branch,
       # a grim script in the v4.0 releases the stable channel follows.
       omasnap = ${if omasnapScreenshots then "True" else "False"}
@@ -849,7 +851,7 @@ in
       # Install > Package opens its wrapper again after the rebuild.
       machine.succeed(shell)
       count = int(machine.succeed(terminals).strip())
-      machine.succeed(f"{user} '{session} omarchy-menu summon install.package'")
+      machine.wait_until_succeeds(f"{user} '{session} omarchy-menu summon install.package'", timeout=90)
       machine.wait_until_succeeds(f"test $({terminals}) -gt {count}", timeout=60)
       machine.succeed("pgrep -u omarchy -f 'omarchy-pkg-install$'")
       machine.screenshot("install-wrapper")
